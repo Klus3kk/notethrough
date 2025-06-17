@@ -1,6 +1,6 @@
 # **NoteStream**
 
-**NoteStream** is an advanced music streaming app, inspired by Spotify, that brings together cutting-edge technologies to deliver a modern, personalized listening experience. The app integrates AI-driven recommendations, real-time lyrics, social sharing, and offline access via PWA. With Docker for containerization and Google Cloud for hosting and file storage, NoteStream is scalable, reliable, and designed to handle modern music streaming needs.
+**NoteStream** is a music streaming app, inspired by Spotify, that brings to deliver a modern, personalized listening experience. The app integrates AI-driven recommendations, real-time lyrics, social sharing, and offline access via PWA. With Docker for containerization and Google Cloud for hosting and file storage, NoteStream is scalable, reliable, and designed to handle modern music streaming needs.
 
 ## **Key Features**
 
@@ -39,56 +39,7 @@
 - **Google Cloud**: Used for scalable hosting, with Kubernetes and Docker for orchestration. Also used for storing audio files in Google Cloud Storage.
 - **CI/CD**: GitHub Actions for automated testing, building, and deployment to Google Cloud.
 
----
-
-## **Docker Setup and Commands**
-
-To ensure smooth development and deployment, the **NoteStream** project uses Docker for containerization. All services, including the backend, FastAPI, PostgreSQL, and other components, are containerized to streamline development and ensure consistent environments.
-
-### **Docker Compose Setup**
-
-The `docker-compose.yml` file defines the services required for the project:
-
-```yaml
-version: '3'
-services:
-  backend:
-    build: ./backend
-    ports:
-      - "4000:4000"
-    environment:
-      DATABASE_URL: postgresql://user:password@db:5432/notestream?sslmode=require
-    depends_on:
-      - db
-    volumes:
-      - ./backend:/app
-    command: ["npm", "run", "dev"]
-
-  fastapi_service:
-    build: ./fastapi_service
-    ports:
-      - "8000:8000"
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-  db:
-    image: postgres
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: notestream
-    ports:
-      - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-
-volumes:
-  db_data:
-```
-
 ### **Useful Docker Commands**
-
-Here are some useful Docker commands for managing your NoteStream project:
-
 #### **Building and Running Services**
 
 - **Start the services**:
@@ -163,14 +114,3 @@ Here are some useful Docker commands for managing your NoteStream project:
 
   Generates the Prisma client based on your schema.
 
----
-
-### **How Docker Works in NoteStream**
-
-- **Backend**: The Node.js backend, responsible for serving the GraphQL API, runs in a Docker container. It interacts with the PostgreSQL database and serves track metadata and user data via GraphQL.
-  
-- **FastAPI Service**: A separate container runs the FastAPI service, which provides AI-based recommendations for users. This service fetches data from PostgreSQL and uses machine learning models for recommendations.
-
-- **PostgreSQL**: The PostgreSQL database runs in its own container and stores all metadata about users, playlists, and tracks.
-
-- **Google Cloud Storage**: Songs are stored in Google Cloud Storage, and the backend provides URLs to these files, which are then played in the frontend.
