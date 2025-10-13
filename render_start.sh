@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-if [ ! -f /tmp/combined_spotify_tracks.csv ]; then
-  curl -sSf -H "Authorization: token $DATA_PAT" \
-    -L https://raw.githubusercontent.com/Klus3kk/private_data/blob/main/combined_spotify_tracks.csv \
-    -o /tmp/combined_spotify_tracks.csv
+DATA_URL="https://media.githubusercontent.com/media/Klus3kk/private_data/main/combined_spotify_tracks.csv"
+TARGET=/tmp/combined_spotify_tracks.csv
+
+if [ ! -f "$TARGET" ]; then
+  curl -fSL \
+    -H "Authorization: Bearer $DATA_PAT" \
+    -o "$TARGET" \
+    "$DATA_URL"
 fi
 
-export SPOTIFY_DATA_PATH=/tmp/combined_spotify_tracks.csv
-exec gunicorn app:app --bind 0.0.0.0:$PORT
+export SPOTIFY_DATA_PATH="$TARGET"
+exec gunicorn app:app --bind 0.0.0.0:"${PORT:-8080}"
