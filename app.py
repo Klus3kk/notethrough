@@ -7,11 +7,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
-
+import os
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_FILE = BASE_DIR / "data" / "combined_spotify_tracks.csv"
 
+def _resolve_data_file() -> Path:
+    configured_path = os.environ.get("SPOTIFY_DATA_PATH")
+    if configured_path:
+        candidate = Path(configured_path)
+        if not candidate.is_absolute():
+            candidate = (BASE_DIR / candidate).resolve()
+        return candidate
+    return BASE_DIR / "data" / "combined_spotify_tracks.csv"
+
+DATA_FILE = _resolve_data_file()
 DATA_COLUMNS = [
     "Track URI",
     "Track Name",
@@ -127,7 +136,14 @@ def _normalize_text(value: pd.Series) -> pd.Series:
 
 def _load_dataset() -> pd.DataFrame:
     if not DATA_FILE.exists():
-        raise FileNotFoundError(f"Dataset not found at {DATA_FILE}")
+        env_hint = os.environ.get("SPOTIFY_DATA_PATH")
+        hint = (
+            f"Dataset not found at {DATA_FILE}. "
+            "Set the SPOTIFY_DATA_PATH environment variable to the dataset location."
+        )
+        if env_hint:
+            hint += f" (Current SPOTIFY_DATA_PATH={env_hint})"
+        raise FileNotFoundError(hint)
 
     df = pd.read_csv(
         DATA_FILE,
