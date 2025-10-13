@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Spotify Song Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="page">
+      <div class="content">
+        <header class="hero">
+          <h1>Spotify Song Finder</h1>
+          <p>Search the dataset by song title or artist and explore track details.</p>
+          <form id="search-form" role="search" autocomplete="off">
+            <label class="sr-only" for="search-input">Search songs</label>
+            <div class="search-wrapper">
+              <input
+                id="search-input"
+                type="search"
+                name="q"
+                placeholder="Search for a song or artist..."
+                autocomplete="off"
+                required
+                aria-describedby="search-help"
+              >
+              <p id="search-help" class="sr-only">
+                Start typing to see live suggestions. Select a song to open detailed information.
+              </p>
+              <ul id="suggestions" class="suggestions" role="listbox" aria-label="Search suggestions"></ul>
+            </div>
+          </form>
+        </header>
+
+        <section id="results" class="results" aria-live="polite"></section>
+
+        <section id="analysis" class="analysis" aria-live="polite">
+          <h2>Dataset Insights</h2>
+          <div class="analysis-marquee">
+            <ul id="analysis-marquee" class="marquee-track" aria-hidden="false"></ul>
+          </div>
+        </section>
+
+        <section id="recommendation" class="recommendation">
+          <h2>Find Songs You’ll Love</h2>
+          <p class="recommendation-copy">
+            Add one or more favourites and we will suggest tracks with a similar feel based on the dataset’s audio features.
+          </p>
+          <form id="seed-form" role="search" autocomplete="off">
+            <label class="sr-only" for="seed-input">Add a favourite song</label>
+            <div class="search-wrapper seed-search">
+              <input
+                id="seed-input"
+                type="search"
+                name="seed"
+                placeholder="Add a favourite song..."
+                autocomplete="off"
+                aria-describedby="seed-help"
+              >
+              <p id="seed-help" class="sr-only">
+                Start typing to see matching songs. Press enter or click a suggestion to add it to your favourites list.
+              </p>
+              <ul id="seed-suggestions" class="suggestions" role="listbox" aria-label="Favourite song suggestions"></ul>
+            </div>
+          </form>
+          <div id="seed-chips" class="seed-chips" aria-live="polite"></div>
+          <div class="recommend-actions">
+            <button id="recommend-btn" type="button" disabled>Find similar songs</button>
+          </div>
+          <section id="recommend-results" class="results recommendations" aria-live="polite"></section>
+        </section>
+      </div>
+    </div>
+
+    <template id="result-template">
+      <article class="result">
+        <div class="result-leading">
+          <div class="avatar avatar-lg" data-initial=""></div>
+        </div>
+        <div class="result-body">
+          <header class="result-header">
+            <h2 class="song-title"></h2>
+            <p class="song-meta"></p>
+          </header>
+          <p class="song-insights"></p>
+          <ul class="genre-list"></ul>
+          <div class="result-actions">
+            <button type="button" class="result-action add-to-mix">Add to mix</button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <div id="detail-overlay" class="detail-overlay hidden" role="dialog" aria-modal="true">
+      <div class="detail-card">
+        <button id="detail-close" type="button" class="detail-close" aria-label="Close details">×</button>
+        <header class="detail-header">
+          <div id="detail-avatar" class="avatar avatar-lg" data-initial=""></div>
+          <div class="detail-heading">
+            <h2 id="detail-title"></h2>
+            <p id="detail-subtitle"></p>
+          </div>
+          <ul id="detail-genres" class="detail-genres"></ul>
+        </header>
+        <div class="detail-body">
+          <dl id="detail-attributes" class="detail-attributes"></dl>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </body>
+</html>

@@ -1,32 +1,10 @@
-# Node.js
-node_modules/
-npm-debug.log
-yarn-error.log
-
-# Environment variables
-.env
-
-# Logs
-logs
+data
+*.zip
+*.tar.gz
+*.rar
+*.7z
 *.log
-
-# Docker
-.dockerignore
-Dockerfile
-docker-compose.yml
-
-# Python (FastAPI)
-venv/
+*.tmp
+.ipynb_checkpoints
+venv
 __pycache__/
-
-# Prisma
-prisma/migrations/
-
-# IDE settings
-.vscode/
-.idea/
-
-# Build outputs
-dist/
-out/
-build/
