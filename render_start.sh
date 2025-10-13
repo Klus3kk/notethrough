@@ -3,7 +3,7 @@ set -eo pipefail
 
 if [ ! -f /tmp/combined_spotify_tracks.csv ]; then
   curl -sSf -H "Authorization: token $DATA_PAT" \
-    -L https://raw.githubusercontent.com/Klus3kk/private_data/main/combined_spotify_tracks.csv \
+    -L https://raw.githubusercontent.com/Klus3kk/private_data/blob/main/combined_spotify_tracks.csv \
     -o /tmp/combined_spotify_tracks.csv
 fi
 
