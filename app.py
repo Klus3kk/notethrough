@@ -153,7 +153,7 @@ def _load_dataset() -> pd.DataFrame:
         dtype="string",
     )
 
-    if missing := [column for column in DATA_COLUMNS if column not in df.column]:
+    if missing := [column for column in DATA_COLUMNS if column not in df.columns]:
         for column in missing:
             df[column] = pd.Series(pd.NA, index=df.index, dtype="string")
             df = df.loc[:, DATA_COLUMNS]
