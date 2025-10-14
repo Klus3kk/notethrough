@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-TARGET=/tmp/combined_spotify_tracks.csv
+TARGET=/tmp/combined_spotify_tracks.sqlite
 
 if [ ! -f "$TARGET" ]; then
   if [ -z "$DATA_PAT" ]; then
@@ -17,9 +17,12 @@ if [ ! -f "$TARGET" ]; then
       -H "Authorization: token $DATA_PAT" \
       -H "Accept: application/vnd.github+json" \
       "$API_RELEASE_URL" |
-    python -c 'import sys, json; data=json.load(sys.stdin); assets=data.get("assets", []); 
-if not assets: raise SystemExit("No assets in release"); 
-print(assets[0]["url"])'
+    python -c 'import sys, json; data=json.load(sys.stdin); 
+assets = data.get("assets", []);
+match = next((asset for asset in assets if asset.get("name") == "combined_spotify_tracks.sqlite.xz"), None)
+if not match:
+    raise SystemExit("SQLite asset not found in release")
+print(match["url"])'
   )
 
   curl -fSL \

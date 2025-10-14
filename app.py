@@ -1,26 +1,30 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-from flask import Flask, jsonify, render_template, request
 import os
+import numpy as np
+from flask import Flask, jsonify, render_template, request
+import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parent
 
-def _resolve_data_file() -> Path:
+
+def _resolve_sqlite_file() -> Path:
     configured_path = os.environ.get("SPOTIFY_DATA_PATH")
     if configured_path:
         candidate = Path(configured_path)
         if not candidate.is_absolute():
             candidate = (BASE_DIR / candidate).resolve()
         return candidate
-    return BASE_DIR / "data" / "combined_spotify_tracks.csv"
+    return BASE_DIR / "data" / "combined_spotify_tracks.sqlite"
 
-DATA_FILE = _resolve_data_file()
+
+DATA_FILE = _resolve_sqlite_file()
 DATA_COLUMNS = [
     "Track URI",
     "Track Name",
@@ -134,243 +138,344 @@ def _normalize_text(value: pd.Series) -> pd.Series:
     )
 
 
-def _load_dataset() -> pd.DataFrame:
+def _ensure_dataset() -> None:
     if not DATA_FILE.exists():
         env_hint = os.environ.get("SPOTIFY_DATA_PATH")
         hint = (
             f"Dataset not found at {DATA_FILE}. "
-            "Set the SPOTIFY_DATA_PATH environment variable to the dataset location."
+            "Set SPOTIFY_DATA_PATH to the SQLite database location."
         )
         if env_hint:
-            hint += f" (Current SPOTIFY_DATA_PATH={env_hint})"
+            hint += f" (current SPOTIFY_DATA_PATH={env_hint})"
         raise FileNotFoundError(hint)
 
-    desired_columns = set(DATA_COLUMNS)
-    
-    df = pd.read_csv(
-        DATA_FILE,
-        usecols=lambda column: column in desired_columns,
-        dtype="string",
-    )
 
-    if missing := [column for column in DATA_COLUMNS if column not in df.columns]:
-        for column in missing:
-            df[column] = pd.Series(pd.NA, index=df.index, dtype="string")
-            df = df.loc[:, DATA_COLUMNS]
-
-    for column, target_dtype in NUMERIC_COLUMNS.items():
-        if column not in df.columns:
-            continue
-        df[column] = pd.to_numeric(df[column], errors="coerce")
-        if target_dtype == "Int64":
-            df[column] = df[column].astype("Int64")
-        else:
-            df[column] = df[column].astype(float)
-
-    for column in BOOL_COLUMNS:
-        if column not in df.columns:
-            continue
-        df[column] = (
-            df[column]
-            .astype("string")
-            .str.lower()
-            .map({"true": True, "false": False})
-            .fillna(False)
-        )
-
-    release_datetime = pd.to_datetime(df["Release Date"], errors="coerce")
-    df["Release Year"] = release_datetime.dt.year.astype("Int64")
-    df["Release Date"] = release_datetime.dt.strftime("%Y-%m-%d")
-    df["Release Date"] = df["Release Date"].fillna("").replace("NaT", "")
-    df["Release Date"] = df["Release Date"].astype("string")
-
-    def _split_genres(raw: str | pd.NA) -> list[str]:
-        if raw is None or pd.isna(raw):
-            return []
-        cleaned = str(raw).strip().strip('"')
-        if not cleaned:
-            return []
-        return [genre.strip() for genre in cleaned.split(",") if genre.strip()]
-
-    df["Genres"] = df["Genres"].apply(_split_genres)
-
-    df["search_text"] = (
-        _normalize_text(df["Track Name"])
-        + " "
-        + _normalize_text(df["Artist Name(s)"])
-        + " "
-        + _normalize_text(df["Album Name"])
-    ).str.replace(r"\s+", " ", regex=True).str.strip()
-
-    return df
+def _connect() -> sqlite3.Connection:
+    _ensure_dataset()
+    conn = sqlite3.connect(DATA_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
-SONGS_DF = _load_dataset()
-
-FEATURE_MATRIX = (
-    SONGS_DF.loc[:, FEATURE_COLUMNS]
-    .apply(pd.to_numeric, errors="coerce")
-    .fillna(0.0)
-    .astype(float)
-)
-
-FEATURE_MEAN = FEATURE_MATRIX.mean()
-FEATURE_STD = FEATURE_MATRIX.std(ddof=0).replace(0, 1.0)
-FEATURE_NORMALIZED = (FEATURE_MATRIX - FEATURE_MEAN) / FEATURE_STD
-
-GENRE_SETS = SONGS_DF["Genres"].apply(lambda genres: frozenset(genres))
+def _split_genres(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [genre.strip() for genre in raw.split(",") if genre.strip()]
 
 
-def _compute_dataset_summary(df: pd.DataFrame) -> dict[str, object]:
+def _row_to_dict(row: sqlite3.Row) -> dict:
+    record = dict(row)
+    record["Genres"] = _split_genres(record.get("Genres"))
+    return record
+
+
+@lru_cache(maxsize=1)
+def _dataset_summary() -> dict[str, object]:
     totals = {
-        "total_rows": int(len(df)),
-        "unique_tracks": int(df["Track URI"].nunique()) if "Track URI" in df.columns else int(len(df)),
-        "unique_artists": int(df["Artist Name(s)"].nunique()),
-        "average_popularity": round(float(df["Popularity"].dropna().mean()), 2)
-        if "Popularity" in df.columns
-        else None,
-        "average_danceability": round(float(df["Danceability"].dropna().mean()), 2)
-        if "Danceability" in df.columns
-        else None,
-        "average_energy": round(float(df["Energy"].dropna().mean()), 2)
-        if "Energy" in df.columns
-        else None,
+        "total_rows": 0,
+        "unique_tracks": 0,
+        "unique_artists": 0,
+        "average_popularity": None,
+        "average_danceability": None,
+        "average_energy": None,
+        "release_year_range": {"min": None, "max": None},
     }
-
-    year_series = df["Release Year"].dropna().astype(int)
-    if not year_series.empty:
-        totals["release_year_range"] = {
-            "min": int(year_series.min()),
-            "max": int(year_series.max()),
-        }
-    else:
-        totals["release_year_range"] = None
-
     artist_counter: Counter[str] = Counter()
-    for raw in df["Artist Name(s)"]:
-        if not raw:
-            continue
-        for artist in str(raw).split(","):
-            name = artist.strip()
-            if name:
-                artist_counter[name] += 1
-
-    top_artists = [
-        {"name": name, "count": count} for name, count in artist_counter.most_common(10)
-    ]
-
     genre_counter: Counter[str] = Counter()
-    for genres in df["Genres"]:
-        genre_counter.update(genres)
+    yearly_counter: Counter[int] = Counter()
 
-    top_genres = [
-        {"name": name, "count": count} for name, count in genre_counter.most_common(15)
-    ]
+    pop_sum = 0.0
+    pop_count = 0
+    dance_sum = 0.0
+    dance_count = 0
+    energy_sum = 0.0
+    energy_count = 0
 
-    if "Popularity" in df.columns:
-        top_tracks_df = (
-            df.sort_values("Popularity", ascending=False)
-            .loc[:, ["Track URI", "Track Name", "Artist Name(s)", "Popularity"]]
-            .head(10)
+    seen_tracks = set()
+    seen_artists = set()
+
+    with _connect() as conn:
+        cursor = conn.execute(
+            """
+            SELECT
+                "Track URI",
+                "Artist Name(s)",
+                "Genres",
+                "Release Year",
+                "Popularity",
+                "Danceability",
+                "Energy"
+            FROM tracks
+            """
         )
-        top_tracks = top_tracks_df.to_dict(orient="records")
-    else:
-        top_tracks = []
+        while True:
+            rows = cursor.fetchmany(10000)
+            if not rows:
+                break
+            for row in rows:
+                totals["total_rows"] += 1
+                track_uri = row["Track URI"]
+                artist = row["Artist Name(s)"] or ""
 
-    yearly_counts = (
-        year_series.value_counts()
-        .sort_index()
-        .rename_axis("year")
-        .reset_index(name="count")
-        .to_dict(orient="records")
-    )
+                if track_uri not in seen_tracks:
+                    seen_tracks.add(track_uri)
+                if artist:
+                    artist_counter[artist] += 1
+                    if artist not in seen_artists:
+                        seen_artists.add(artist)
+
+                if row["Popularity"] is not None:
+                    pop_sum += row["Popularity"]
+                    pop_count += 1
+                if row["Danceability"] is not None:
+                    dance_sum += row["Danceability"]
+                    dance_count += 1
+                if row["Energy"] is not None:
+                    energy_sum += row["Energy"]
+                    energy_count += 1
+
+                if row["Release Year"] is not None:
+                    year = int(row["Release Year"])
+                    yearly_counter[year] += 1
+
+                genres = row["Genres"] or ""
+                for genre in genres.split(","):
+                    genre = genre.strip()
+                    if genre:
+                        genre_counter[genre] += 1
+
+    totals["unique_tracks"] = len(seen_tracks)
+    totals["unique_artists"] = len(seen_artists)
+    if pop_count:
+        totals["average_popularity"] = round(pop_sum / pop_count, 2)
+    if dance_count:
+        totals["average_danceability"] = round(dance_sum / dance_count, 2)
+    if energy_count:
+        totals["average_energy"] = round(energy_sum / energy_count, 2)
+    if yearly_counter:
+        totals["release_year_range"]["min"] = min(yearly_counter)
+        totals["release_year_range"]["max"] = max(yearly_counter)
+
+    def _top(counter: Counter[str], limit: int) -> list[dict]:
+        return [
+            {"name": name, "count": count}
+            for name, count in counter.most_common(limit)
+        ]
+
+    top_tracks = []
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT "Track URI", "Track Name", "Artist Name(s)", "Popularity"
+            FROM tracks
+            WHERE "Popularity" IS NOT NULL
+            ORDER BY "Popularity" DESC
+            LIMIT 10
+            """
+        ).fetchall()
+        top_tracks = [dict(row) for row in rows]
+
+    yearly_release_counts = [
+        {"year": year, "count": count}
+        for year, count in sorted(yearly_counter.items())
+    ]
 
     return {
         "totals": totals,
-        "top_artists": top_artists,
-        "top_genres": top_genres,
-        "yearly_release_counts": yearly_counts,
+        "top_artists": _top(artist_counter, 10),
+        "top_genres": _top(genre_counter, 15),
+        "yearly_release_counts": yearly_release_counts,
         "top_tracks": top_tracks,
     }
 
 
-DATA_SUMMARY = _compute_dataset_summary(SONGS_DF)
+@lru_cache(maxsize=1)
+def _has_search_text_column() -> bool:
+    with _connect() as conn:
+        columns = conn.execute("PRAGMA table_info(tracks)").fetchall()
+    return any(col[1] == "search_text" for col in columns)
 
 
-def _search_songs(query: str, limit: int = 25) -> pd.DataFrame:
+def _search_songs(query: str, limit: int = 25) -> list[dict]:
     normalized = query.strip().lower()
     if len(normalized) < 2:
-        return SONGS_DF.iloc[0:0]
+        return []
 
-    tokens = [re.escape(token) for token in normalized.split() if token]
+    tokens = [token for token in normalized.split() if token]
     if not tokens:
-        return SONGS_DF.iloc[0:0]
+        return []
 
-    mask = SONGS_DF["search_text"].str.contains(tokens[0], na=False)
-    for token in tokens[1:]:
-        mask &= SONGS_DF["search_text"].str.contains(token, na=False)
-
-    return SONGS_DF.loc[mask].head(limit)
-
-
-def _recommend_tracks(uris: list[str], limit: int = 20) -> pd.DataFrame:
-    if not uris:
-        return SONGS_DF.iloc[0:0]
-
-    mask = SONGS_DF["Track URI"].isin(uris)
-    if not mask.any():
-        return SONGS_DF.iloc[0:0]
-
-    centroid = FEATURE_NORMALIZED.loc[mask].mean(axis=0)
-    deltas = FEATURE_NORMALIZED - centroid
-    distances = deltas.pow(2).sum(axis=1).pow(0.5)
-    distances.loc[mask] = np.inf
-
-    candidate_pool = max(limit * 6, 60)
-    candidates = distances.nsmallest(candidate_pool)
-    candidates = candidates[np.isfinite(candidates)]
-    if candidates.empty:
-        return SONGS_DF.iloc[0:0]
-
-    seed_genre_sets = list(GENRE_SETS.loc[mask])
-    seed_genres = set().union(*seed_genre_sets) if seed_genre_sets else set()
-    genre_similarity = {}
-    for idx in candidates.index:
-        candidate_genres = GENRE_SETS.loc[idx]
-        if not seed_genres or not candidate_genres:
-            genre_similarity[idx] = 0.0
-            continue
-        intersection = len(seed_genres & candidate_genres)
-        union = len(seed_genres | candidate_genres)
-        genre_similarity[idx] = intersection / union if union else 0.0
-
-    feature_similarity = (1 / (1 + candidates)).clip(0, 1)
-
-    seed_popularity = SONGS_DF.loc[mask, "Popularity"].dropna()
-    if not seed_popularity.empty:
-        pop_mean = seed_popularity.mean()
-        candidate_popularity = SONGS_DF.loc[candidates.index, "Popularity"].fillna(pop_mean)
-        pop_similarity = 1 - (candidate_popularity.sub(pop_mean).abs() / 100.0)
-        pop_similarity = pop_similarity.clip(lower=0.0, upper=1.0)
+    if _has_search_text_column():
+        column_expr = "search_text"
     else:
-        pop_similarity = pd.Series(0.0, index=candidates.index)
+        column_expr = (
+            "LOWER(COALESCE(""Track Name"", '')) || ' ' || "
+            "LOWER(COALESCE(""Artist Name(s)"", '')) || ' ' || "
+            "LOWER(COALESCE(""Album Name"", ''))"
+        )
 
-    genre_similarity_series = pd.Series(genre_similarity).reindex(candidates.index, fill_value=0.0)
-    combined_similarity = (
-        feature_similarity * 0.6
-        + genre_similarity_series * 0.3
-        + pop_similarity * 0.1
-    )
+    like_clauses = " AND ".join(f"{column_expr} LIKE ?" for _ in tokens)
+    params = [f"%{token}%" for token in tokens]
 
-    top_indices = combined_similarity.nlargest(limit).index
-    result = SONGS_DF.loc[top_indices].copy()
-    result["similarity"] = combined_similarity.loc[top_indices].round(4)
+    with _connect() as conn:
+        records = conn.execute(
+            f"""
+            SELECT
+                "Track URI",
+                "Track Name",
+                "Artist Name(s)",
+                "Album Name",
+                "Release Date",
+                "Release Year",
+                "Popularity",
+                "Genres",
+                "Danceability",
+                "Energy",
+                "Valence",
+                "Tempo"
+            FROM tracks
+            WHERE {like_clauses}
+            ORDER BY "Popularity" DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+
+    return [_row_to_dict(row) for row in records]
+
+
+def _song_detail(uri: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM tracks WHERE "Track URI" = ?
+            """,
+            (uri,),
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def _fetch_tracks_by_uris(uris: list[str]) -> list[dict]:
+    if not uris:
+        return []
+    placeholders = ",".join("?" for _ in uris)
+    order_clause = "CASE " + " ".join(
+        f'WHEN "Track URI" = ? THEN {index}' for index, _ in enumerate(uris)
+    ) + " END"
+    params = [*uris, *uris]
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM tracks
+            WHERE "Track URI" IN ({placeholders})
+            ORDER BY {order_clause}
+            """,
+            params,
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+def _feature_data():
+    with _connect() as conn:
+        df = pd.read_sql_query(
+            """
+            SELECT
+                "Track URI",
+                "Genres",
+                "Popularity",
+                "Danceability",
+                "Energy",
+                "Valence",
+                "Tempo",
+                "Liveness",
+                "Acousticness",
+                "Speechiness",
+                "Instrumentalness",
+                "Loudness",
+                "Duration (ms)"
+            FROM tracks
+            """,
+            conn,
+        )
+
+    features = df[FEATURE_COLUMNS].astype("float32").fillna(0.0)
+    normalized = (features - features.mean()).div(features.std().replace(0, 1)).fillna(0.0)
+    uri_to_index = {uri: idx for idx, uri in enumerate(df["Track URI"])}
+    genre_sets = [frozenset(_split_genres(genres)) for genres in df["Genres"]]
+
+    return {
+        "uris": df["Track URI"].tolist(),
+        "uri_to_index": uri_to_index,
+        "normalized": normalized.to_numpy(dtype="float32"),
+        "genre_sets": genre_sets,
+        "popularity": df["Popularity"].fillna(0.0).to_numpy(dtype="float32"),
+    }
+
+
+@lru_cache(maxsize=1)
+def _feature_cache():
+    return _feature_data()
+
+
+def _serialize_records(records: list[dict], columns: list[str]) -> list[dict]:
+    result = []
+    for record in records:
+        filtered = {col: record.get(col) for col in columns if col in record}
+        result.append(filtered)
     return result
 
 
-def _serialize_records(df: pd.DataFrame, columns: list[str]) -> list[dict]:
-    available = [col for col in columns if col in df.columns]
-    return df.loc[:, available].to_dict(orient="records")
+def _recommend_tracks(uris: list[str], limit: int = 20) -> list[dict]:
+    if not uris:
+        return []
+
+    data = _feature_cache()
+    uri_to_index = data["uri_to_index"]
+    seed_indices = [uri_to_index.get(uri) for uri in uris if uri_to_index.get(uri) is not None]
+    if not seed_indices:
+        return []
+
+    normalized = data["normalized"]
+    centroid = normalized[seed_indices].mean(axis=0)
+    deltas = normalized - centroid
+    distances = np.sqrt((deltas ** 2).sum(axis=1))
+    for idx in seed_indices:
+        distances[idx] = np.inf
+
+    candidate_pool_size = min(max(limit * 6, 60), len(distances))
+    candidate_indices = np.argpartition(distances, candidate_pool_size - 1)[:candidate_pool_size]
+
+    feature_similarity = 1.0 / (1.0 + distances[candidate_indices])
+
+    seed_genres = set().union(*(data["genre_sets"][idx] for idx in seed_indices))
+    genre_similarity = []
+    for idx in candidate_indices:
+        candidate_genres = data["genre_sets"][idx]
+        if not seed_genres or not candidate_genres:
+            genre_similarity.append(0.0)
+            continue
+        intersection = len(seed_genres & candidate_genres)
+        union = len(seed_genres | candidate_genres)
+        genre_similarity.append(intersection / union if union else 0.0)
+    genre_similarity = np.array(genre_similarity, dtype="float32")
+
+    seed_popularity = data["popularity"][seed_indices]
+    pop_mean = seed_popularity.mean() if len(seed_popularity) else 0.0
+    candidate_popularity = data["popularity"][candidate_indices]
+    pop_similarity = 1 - (np.abs(candidate_popularity - pop_mean) / 100.0)
+    pop_similarity = np.clip(pop_similarity, 0.0, 1.0)
+
+    combined = feature_similarity * 0.6 + genre_similarity * 0.3 + pop_similarity * 0.1
+    top_order = np.argsort(-combined)[:limit]
+    top_indices = candidate_indices[top_order]
+    top_scores = combined[top_order]
+    uris_ordered = [data["uris"][idx] for idx in top_indices]
+
+    tracks = _fetch_tracks_by_uris(uris_ordered)
+    score_map = dict(zip(uris_ordered, top_scores.round(4)))
+    for track in tracks:
+        track["similarity"] = float(score_map.get(track["Track URI"], 0.0))
+    return tracks
 
 
 @app.route("/")
@@ -403,17 +508,16 @@ def song_detail():
     if not uri:
         return jsonify({"error": "Missing track URI."}), 400
 
-    matches = SONGS_DF.loc[SONGS_DF["Track URI"] == uri]
-    if matches.empty:
+    record = _song_detail(uri)
+    if not record:
         return jsonify({"error": "Track not found."}), 404
-
-    record = _serialize_records(matches, DETAIL_COLUMNS)[0]
-    return jsonify(record)
+    filtered = _serialize_records([record], DETAIL_COLUMNS)[0]
+    return jsonify(filtered)
 
 
 @app.route("/stats")
 def stats():
-    return jsonify(DATA_SUMMARY)
+    return jsonify(_dataset_summary())
 
 
 @app.route("/recommend", methods=["POST"])
@@ -432,9 +536,6 @@ def recommend():
         return jsonify({"error": "Provide at least one track URI."}), 400
 
     recommendations = _recommend_tracks(cleaned, limit=25)
-    if recommendations.empty:
-        return jsonify([])
-
     records = _serialize_records(recommendations, RECOMMEND_COLUMNS)
     return jsonify(records)
 
