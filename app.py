@@ -145,11 +145,18 @@ def _load_dataset() -> pd.DataFrame:
             hint += f" (Current SPOTIFY_DATA_PATH={env_hint})"
         raise FileNotFoundError(hint)
 
+    desired_columns = set(DATA_COLUMNS)
+    
     df = pd.read_csv(
         DATA_FILE,
-        usecols=DATA_COLUMNS,
+        usecols=lambda column: column in desired_columns,
         dtype="string",
     )
+
+    if missing := [column for column in DATA_COLUMNS if column not in df.column]:
+        for column in missing:
+            df[column] = pd.Series(pd.NA, index=df.index, dtype="string")
+            df = df.loc[:, DATA_COLUMNS]
 
     for column, target_dtype in NUMERIC_COLUMNS.items():
         if column not in df.columns:
