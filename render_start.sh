@@ -10,9 +10,9 @@ if [ ! -f "$TARGET" ]; then
   fi
   curl -fSL \
     -H "Authorization: token $DATA_PAT" \
-    -o "$TARGET" \
-    "https://github.com/Klus3kk/private_data/releases/download/latest/combined_spotify_tracks.csv.xz"
-  unxz -f "$TARGET"
+    -o "${TARGET}.xz" \
+    "https://github.com/Klus3kk/private_data/releases/download/v0.2.5/combined_spotify_tracks.csv.xz"
+  unxz -f "${TARGET}.xz"
 fi
 
 export SPOTIFY_DATA_PATH="$TARGET"
