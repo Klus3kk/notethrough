@@ -63,7 +63,6 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "8000:8000"
-    command: ["sleep", "3600"] # placeholder until the service is wired up
 
   ml-service:
     build:
