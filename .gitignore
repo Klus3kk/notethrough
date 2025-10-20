@@ -8,3 +8,5 @@ data
 .ipynb_checkpoints
 venv
 __pycache__/
+plan
+Example.jpg

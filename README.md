@@ -3,7 +3,6 @@ Revolution awaits.
 
 Stay tuned.
 
-
 # Data Source Disclaimer
 This project uses a privately stored dataset derived from Spotify user data (via Exportify and the Spotify Web API) for educational and portfolio demonstration purposes only.
 
