@@ -18,6 +18,10 @@ class Settings(BaseSettings):
         "redis://localhost:6379/0",
         description="Redis connection URI",
     )
+    ml_service_url: str = Field(
+        "http://ml-service:8081",
+        description="Base URL for the ML ranking service",
+    )
 
     class Config:
         env_file = ".env"

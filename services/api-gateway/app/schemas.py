@@ -68,3 +68,4 @@ class RecommendationRequest(BaseModel):
 
 class RecommendationResponseItem(TrackSummary):
     similarity: float
+    components: Optional[dict[str, float]] = None

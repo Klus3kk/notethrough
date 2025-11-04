@@ -27,6 +27,13 @@
   - Updated Dockerfiles to install dependencies via `uv pip install`.
   - Refreshed `.gitignore` and README tooling notes to reflect the new workflow.
 - Scaffolded the ML service FastAPI app with health and hybrid ranking placeholder endpoints and documented its roadmap.
+- Implemented the first real hybrid ranking pipeline in the ML service: scores now come from track features in Postgres with deterministic content/collaborative/text components and epsilon-greedy exploration.
+- Integrated the API gateway with the ML service:
+  - Added an async HTTP client wrapper with graceful shutdown handling.
+  - Updated the recommendations endpoint to call the ML hybrid ranking API with a centroid-based fallback.
+  - Adjusted schemas to surface hybrid score components and refreshed configuration/env wiring.
+- Added a Redis-backed statistics cache with graceful degradation and closedown hooks.
+- Introduced pytest+httpx smoke tests for the API gateway (health + metadata routes) and captured them in the uv `test` dependency group.
 
 ## Next Targets
 

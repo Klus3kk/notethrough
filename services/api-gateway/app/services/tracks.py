@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from sqlalchemy import and_, func, literal, select
@@ -15,6 +15,7 @@ from ..schemas import (
     TrackSummary,
 )
 from ..utils import to_detail_schema, to_suggestion_schema, to_summary_schema
+from .ml_client import MLServiceError, rank_candidates
 
 
 async def search_tracks(session: AsyncSession, query: str, limit: int = 25) -> List[TrackSummary]:
@@ -86,30 +87,6 @@ async def fetch_recommendations(session: AsyncSession, uris: List[str], limit: i
     if not seeds:
         return []
 
-    feature_columns = [
-        Track.danceability,
-        Track.energy,
-        Track.valence,
-        Track.tempo,
-        Track.liveness,
-        Track.acousticness,
-        Track.speechiness,
-        Track.instrumentalness,
-        Track.loudness,
-        Track.duration_ms,
-        Track.popularity,
-    ]
-
-    def _vector(track: Track) -> np.ndarray:
-        values: list[float] = []
-        for column in feature_columns:
-            value = getattr(track, column.key)
-            values.append(float(value) if value is not None else 0.0)
-        return np.array(values, dtype=np.float32)
-
-    seed_matrix = np.vstack([_vector(seed) for seed in seeds])
-    centroid = seed_matrix.mean(axis=0)
-
     candidate_stmt = (
         select(Track)
         .where(~Track.track_uri.in_(uris))
@@ -120,19 +97,45 @@ async def fetch_recommendations(session: AsyncSession, uris: List[str], limit: i
     if not candidates:
         return []
 
-    scored: list[tuple[Track, float]] = []
-    for candidate in candidates:
-        vec = _vector(candidate)
-        dist = np.linalg.norm(vec - centroid)
-        similarity = float(1.0 / (1.0 + dist))
-        scored.append((candidate, similarity))
+    seeds_payload = []
+    for seed in seeds:
+        popularity = float(seed.popularity) if seed.popularity is not None else 50.0
+        weight = max(popularity / 100.0, 0.01)
+        seeds_payload.append({"track_uri": seed.track_uri, "weight": weight})
+    candidate_map: Dict[str, Track] = {candidate.track_uri: candidate for candidate in candidates}
+    candidate_uris = list(candidate_map.keys())
 
-    scored.sort(key=lambda item: item[1], reverse=True)
-    scored = scored[:limit]
+    ranked_items: Optional[List[Tuple[Track, float, Optional[Dict[str, float]]]]] = None
+    try:
+        ml_results = await rank_candidates(seeds_payload, candidate_uris)
+        ranked_items = []
+        for item in ml_results:
+            uri = item.get("track_uri")
+            if not isinstance(uri, str):
+                continue
+            track = candidate_map.get(uri)
+            if track is None:
+                continue
+            score = float(item.get("score", 0.0))
+            components = item.get("components")
+            if not isinstance(components, dict):
+                components = None
+            ranked_items.append((track, score, components))
+    except MLServiceError:
+        ranked_items = None
+
+    if not ranked_items:
+        ranked_items = _fallback_rank(seeds, candidates)
+
+    ranked_items.sort(key=lambda entry: entry[1], reverse=True)
 
     return [
-        RecommendationResponseItem(**to_summary_schema(track).dict(), similarity=score)
-        for track, score in scored
+        RecommendationResponseItem(
+            **to_summary_schema(track).dict(),
+            similarity=score,
+            components=components,
+        )
+        for track, score, components in ranked_items[:limit]
     ]
 
 
@@ -234,3 +237,37 @@ async def compute_statistics(session: AsyncSession) -> StatsResponse:
         yearly_release_counts=yearly_counts,
         top_tracks=top_tracks,
     )
+
+
+def _fallback_rank(seeds: List[Track], candidates: List[Track]) -> List[Tuple[Track, float, Optional[Dict[str, float]]]]:
+    feature_columns = [
+        Track.danceability,
+        Track.energy,
+        Track.valence,
+        Track.tempo,
+        Track.liveness,
+        Track.acousticness,
+        Track.speechiness,
+        Track.instrumentalness,
+        Track.loudness,
+        Track.duration_ms,
+        Track.popularity,
+    ]
+
+    def _vector(track: Track) -> np.ndarray:
+        values: list[float] = []
+        for column in feature_columns:
+            value = getattr(track, column.key)
+            values.append(float(value) if value is not None else 0.0)
+        return np.array(values, dtype=np.float32)
+
+    seed_matrix = np.vstack([_vector(seed) for seed in seeds])
+    centroid = seed_matrix.mean(axis=0)
+
+    scored: list[Tuple[Track, float, Optional[Dict[str, float]]]] = []
+    for candidate in candidates:
+        vec = _vector(candidate)
+        dist = np.linalg.norm(vec - centroid)
+        similarity = float(1.0 / (1.0 + dist))
+        scored.append((candidate, similarity, None))
+    return scored

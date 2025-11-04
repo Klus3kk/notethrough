@@ -7,9 +7,9 @@ This document tracks the migration steps from the legacy Flask/SQLite applicatio
 - [x] Scaffold FastAPI project (`backend/` directory)
 - [x] Define SQLAlchemy models and Pydantic schemas
 - [x] Implement core routes (`/search`, `/suggest`, `/song`, `/stats`, `/recommend`)
-- [ ] Connect to Postgres (local dev via Docker Compose)
-- [ ] Integrate Redis caching placeholder
-- [ ] Create automated tests for the API (pytest + httpx)
+- [x] Connect to Postgres (local dev via Docker Compose)
+- [x] Integrate Redis caching placeholder
+- [x] Create automated tests for the API (pytest + httpx)
 
 ## Phase 2 – Frontend separation
 
@@ -19,14 +19,14 @@ This document tracks the migration steps from the legacy Flask/SQLite applicatio
 
 ## Phase 3 – Data & AI enhancements
 
-- [ ] Build ingestion job from CSV → Postgres 
+- [x] Build ingestion job from CSV → Postgres 
 - [ ] Generate embeddings + vector store for semantic search
 - [ ] Expose LLM-powered Q&A/recommendation explanations (RAG pipeline)
 - [ ] Add background workers (Celery or RQ) if needed for heavy tasks
 
 ## Phase 4 – DevOps & polish
 
-- [ ] Containerize services (Dockerfiles + docker-compose for dev)
+- [x] Containerize services (Dockerfiles + docker-compose for dev)
 - [ ] Set up GitHub Actions (lint, tests, build, deploy)
 - [ ] Provision infrastructure (Render/Fly/managed K8s)
 - [ ] Instrument logging/metrics/dashboards

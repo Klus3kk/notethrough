@@ -8,13 +8,15 @@ This service exposes the public REST API for Notethrough. Responsibilities:
 
 ## Current status
 - Source lives under `app/` (migrated from the former `backend/app` package).
-- `Dockerfile` installs dependencies from `requirements.txt` and serves via Uvicorn on port 8000.
-- `docker-compose.yml` binds this service to Postgres, Redis, OpenSearch, and the future ML service.
+- Dependencies managed via `uv` (`uv pip install --system --project .`).
+- `Dockerfile` installs via `uv` and serves the API with Uvicorn on port 8000.
+- `docker-compose.yml` binds this service to Postgres, Redis, OpenSearch, and the ML service (port 8081).
+- Recommendation endpoint calls the ML service’s hybrid ranking API with a deterministic local fallback.
 
 ## Local development
-- Poetry/uv toolchain not yet configured—use a virtualenv and install `requirements.txt`.
+- Use `uv sync` (repo root) or `uv pip install --system --project .` (service dir) to install deps.
 - Run locally with `uvicorn app.main:app --reload`.
-- Configure environment variables (see `app/config.py`) or create a `.env` file.
+- Configure environment variables (see `app/config.py`) or create a `.env` file (`DATABASE_URL`, `ML_SERVICE_URL`, etc.).
 - During migration the service still expects the Spotify dataset to be loaded into Postgres.
 
 ## Importing the dataset

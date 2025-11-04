@@ -12,5 +12,5 @@ router = APIRouter()
 
 @router.post("/hybrid", summary="Compute hybrid ranking", response_model=HybridRecommendationResponse)
 async def hybrid_ranking_endpoint(payload: HybridRecommendationRequest) -> HybridRecommendationResponse:
-    scored = compute_hybrid_scores(payload)
+    scored = await compute_hybrid_scores(payload)
     return HybridRecommendationResponse(results=scored)

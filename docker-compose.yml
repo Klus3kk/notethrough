@@ -57,7 +57,7 @@ services:
       DATABASE_URL: postgresql+psycopg://notethrough:notethrough@postgres:5432/notethrough?async_fallback=true
       REDIS_URL: redis://redis:6379/0
       OPENSEARCH_URL: http://opensearch:9200
-      ML_SERVICE_URL: http://ml-service:8000
+      ML_SERVICE_URL: http://ml-service:8081
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "8000:8000"
