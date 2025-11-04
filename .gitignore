@@ -7,6 +7,9 @@ data
 *.tmp
 .ipynb_checkpoints
 venv
+.venv
+.uv/
+uv.lock
 __pycache__/
 plan
 Example.jpg

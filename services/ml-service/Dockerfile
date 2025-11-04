@@ -1,6 +1,20 @@
-# Placeholder image for the ML FastAPI service.
 FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
-RUN useradd --create-home app && chown app:app /app
-USER app
-CMD ["sleep", "3600"]
+
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml ./pyproject.toml
+RUN uv pip install --system --project .
+
+COPY app ./app
+
+RUN useradd --create-home appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8081
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]

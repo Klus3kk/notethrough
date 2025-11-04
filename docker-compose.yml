@@ -77,9 +77,9 @@ services:
       REDIS_URL: redis://redis:6379/1
       OPENSEARCH_URL: http://opensearch:9200
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      MODEL_REGISTRY_PATH: /data/models
     ports:
       - "8081:8081"
-    command: ["sleep", "3600"]
 
   frontend:
     build:

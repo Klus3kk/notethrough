@@ -5,10 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# No apt-get step—keeps the build offline-friendly.
+RUN pip install --no-cache-dir uv
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml ./pyproject.toml
+RUN uv pip install --system --project .
 
 COPY app ./app
 
