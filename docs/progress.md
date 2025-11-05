@@ -34,6 +34,10 @@
   - Adjusted schemas to surface hybrid score components and refreshed configuration/env wiring.
 - Added a Redis-backed statistics cache with graceful degradation and closedown hooks.
 - Introduced pytest+httpx smoke tests for the API gateway (health + metadata routes) and captured them in the uv `test` dependency group.
+- Bootstrapped the Next.js 14 frontend with Tailwind, bespoke UI primitives, and a dashboard layout matching the product mock (navigation, metric cards, matrix, and timeline).
+- Added theme tokens (`styles/theme.ts`) and documented the frontend workflow in `frontend/README.md`.
+- Ported search, typeahead, and recommendation flows to the new frontend with realtime API calls and seed blending UI.
+- Added `scripts/dev-up.sh` and `.env.example` to provide a single-command developer bootstrap with dockerised infra and hot-reload services.
 
 ## Next Targets
 

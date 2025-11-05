@@ -13,9 +13,9 @@ This document tracks the migration steps from the legacy Flask/SQLite applicatio
 
 ## Phase 2 – Frontend separation
 
-- [ ] Bootstrap Next.js frontend that consumes the API
-- [ ] Port existing UI functionality (search, detail modal, recommendations, dataset insights)
-- [ ] Add environment-specific configuration for API base URL
+- [x] Bootstrap Next.js frontend that consumes the API
+- [x] Port existing UI functionality (search, detail modal, recommendations, dataset insights)
+- [x] Add environment-specific configuration for API base URL
 
 ## Phase 3 – Data & AI enhancements
 

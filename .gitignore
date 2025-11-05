@@ -9,8 +9,11 @@ data
 venv
 .venv
 .uv/
-uv.lock
+.devlogs/
+frontend/node_modules/
+frontend/.next/
 __pycache__/
 plan
 Example.jpg
 .env
+node_modules/
