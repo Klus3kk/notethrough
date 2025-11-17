@@ -1,0 +1,134 @@
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    environment:
+      POSTGRES_DB: notethrough
+      POSTGRES_USER: notethrough
+      POSTGRES_PASSWORD: notethrough
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    environment:
+      discovery.type: single-node
+      memory.lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      opensearch:
+        condition: service_started
+      ml-service:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://notethrough:notethrough@postgres:5432/notethrough?async_fallback=true
+      REDIS_URL: redis://redis:6379/0
+      OPENSEARCH_URL: http://opensearch:9200
+      ML_SERVICE_URL: http://ml-service:8081
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    ports:
+      - "8000:8000"
+
+  ml-service:
+    build:
+      context: ./services/ml-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      opensearch:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://notethrough:notethrough@postgres:5432/notethrough
+      REDIS_URL: redis://redis:6379/1
+      OPENSEARCH_URL: http://opensearch:9200
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      MODEL_REGISTRY_PATH: /data/models
+    ports:
+      - "8081:8081"
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      api-gateway:
+        condition: service_started
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    command: ["sleep", "3600"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.95.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./infra/telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+    profiles: [observability]
+
+  prometheus:
+    image: prom/prometheus:v2.49.0
+    volumes:
+      - ./infra/telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    profiles: [observability]
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3001:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    volumes:
+      - grafana_data:/var/lib/grafana
+    profiles: [observability]
+
+volumes:
+  postgres_data:
+  redis_data:
+  opensearch_data:
+  grafana_data:

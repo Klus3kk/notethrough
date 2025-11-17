@@ -1,0 +1,12 @@
+[project]
+name = "notethrough"
+version = "0.1.0"
+description = "Workspace configuration for the Notethrough music intelligence platform."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+  "services/api-gateway",
+  "services/ml-service"
+]
