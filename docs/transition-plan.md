@@ -71,3 +71,9 @@ Tracking progress here keeps the main repository files focused while giving a qu
 3. Layer the differentiator features above the shared data model, exposing the new endpoints + UI experiences.
 
 Each bullet above should be broken into concrete tickets once we size the backend/fronted effort per feature.
+
+### Delivered to date
+
+- Rebuilt the frontend studio shell with the experience-driven navigation, universal recommender, and anonymous track explorer.
+- Added Spotify OAuth login/callback endpoints plus a Next.js callback route that stores tokens locally.
+- Delivered the Spotify-connected recommender workflow (connect, seed input, recommendations) and the initial Spotify checker analytics panel.

@@ -7,6 +7,8 @@ import { BlendConsole } from "@/components/blend-console";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SpotifyRecommender } from "@/components/spotify-recommender";
+import { TrackExplorerPanel } from "@/components/track-explorer-panel";
+import { SpotifyChecker } from "@/components/spotify-checker";
 
 interface Section {
   id: string;
@@ -43,14 +45,14 @@ const sections: Section[] = [
     title: "Spotify checker",
     description: "Audit listening history, behaviours, and playlists. Click a playlist to drill into stats.",
     tags: ["History", "Playlists"],
-    render: () => <Placeholder description="Playlist + behaviour analytics will live here." />
+    render: () => <SpotifyChecker />
   },
   {
     id: "track-explorer",
     title: "Universal track explorer",
     description: "Search the catalogue, filter by mood, and inspect metadata without logging in.",
     tags: ["Search", "Metadata"],
-    render: () => <Placeholder description="Explorer UI coming next." />
+    render: () => <TrackExplorerPanel />
   },
   {
     id: "story-mode",

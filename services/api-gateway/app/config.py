@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     database_url: str = Field(..., description="Async SQLAlchemy DSN")
     redis_url: str = Field(..., description="Redis connection URI")
     ml_service_url: str = Field(..., description="Base URL for the ML ranking service")
+    spotify_client_id: Optional[str] = Field(default=None, description="Spotify application client ID")
+    spotify_client_secret: Optional[str] = Field(default=None, description="Spotify application client secret")
+    spotify_redirect_uri: Optional[str] = Field(default=None, description="Spotify OAuth redirect URI")
+    spotify_scopes: str = Field(
+        default="user-read-email user-read-recently-played user-top-read playlist-read-private",
+        description="Space separated Spotify scopes"
+    )
 
     model_config = SettingsConfigDict(
         env_file=str(REPO_ROOT / ".env"),

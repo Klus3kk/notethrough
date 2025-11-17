@@ -16,18 +16,54 @@ interface Recommendation extends TrackSummary {
 export function SpotifyRecommender() {
   const [connected, setConnected] = React.useState(false);
   const [profile, setProfile] = React.useState<{ name: string; followers: number } | null>(null);
+  const [authInfo, setAuthInfo] = React.useState<any>(null);
   const [seedInput, setSeedInput] = React.useState("Phoebe Bridgers\nRadiohead\nFour Tet");
   const [loading, setLoading] = React.useState(false);
   const [recommendations, setRecommendations] = React.useState<Recommendation[]>([]);
   const [error, setError] = React.useState<string | null>(null);
 
-  const connect = () => {
-    setConnected(true);
-    setProfile({ name: "Demo User", followers: 1280 });
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("spotifyAuth");
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      setAuthInfo(parsed);
+      setConnected(true);
+      if (parsed?.profile) {
+        setProfile({
+          name: parsed.profile.display_name ?? parsed.profile.id ?? "Spotify user",
+          followers: parsed.profile.followers?.total ?? 0
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const connect = async () => {
+    setError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/auth/spotify/login`);
+      if (!resp.ok) throw new Error("Unable to start Spotify login");
+      const data = await resp.json();
+      window.location.href = data.auth_url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start Spotify login");
+    }
+  };
+
+  const disconnect = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("spotifyAuth");
+    }
+    setAuthInfo(null);
+    setConnected(false);
+    setProfile(null);
   };
 
   const generateBlend = async () => {
-    if (!connected) {
+    if (!connected || !authInfo) {
       setError("Connect Spotify first");
       return;
     }
@@ -74,9 +110,15 @@ export function SpotifyRecommender() {
           <h3 className="text-2xl font-semibold text-foreground">Spotify recommender</h3>
           <p className="text-sm text-white/70">Import top tracks from your library and let Notethrough generate fresh blends.</p>
         </div>
-        <Button variant={connected ? "secondary" : "primary"} onClick={connect}>
-          {connected ? "Connected" : "Connect Spotify"}
-        </Button>
+        {connected ? (
+          <Button variant="secondary" onClick={disconnect}>
+            Disconnect
+          </Button>
+        ) : (
+          <Button variant="primary" onClick={connect}>
+            Connect Spotify
+          </Button>
+        )}
       </div>
       {profile && (
         <div className="rounded-md border border-white/10 bg-glow/40 px-4 py-3 text-sm text-white/80">
