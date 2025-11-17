@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Track
 from ..schemas import (
+    DiscoveryJourney,
+    JourneyStep,
     RecommendationResponseItem,
+    StoryInsight,
     StatsResponse,
     Suggestion,
     TrackDetail,
@@ -237,6 +240,76 @@ async def compute_statistics(session: AsyncSession) -> StatsResponse:
         yearly_release_counts=yearly_counts,
         top_tracks=top_tracks,
     )
+
+
+async def build_story_insights(session: AsyncSession) -> List[StoryInsight]:
+    stats = await compute_statistics(session)
+    insights: List[StoryInsight] = []
+
+    if stats.top_genres:
+        top_genre = stats.top_genres[0]
+        insights.append(
+            StoryInsight(
+                title=f"Top {top_genre['name']} wave",
+                body="Listeners gravitate toward this genre—highlight it in playlists and marketing copy.",
+                metric=f"{top_genre['count']} tracks",
+            )
+        )
+
+    avg_energy = stats.totals.average_energy
+    avg_dance = stats.totals.average_danceability
+    if avg_energy is not None and avg_dance is not None:
+        tone = "uptempo" if avg_energy >= avg_dance else "laid-back"
+        insights.append(
+            StoryInsight(
+                title="Energy vs danceability",
+                body=f"Blend skews toward {tone} mixes—lean into this ratio when pitching playlists.",
+                metric=f"Energy {avg_energy*100:.0f}% · Dance {avg_dance*100:.0f}%",
+            )
+        )
+
+    release_span = stats.totals.release_year_range
+    if release_span and release_span.get("min") and release_span.get("max"):
+        insights.append(
+            StoryInsight(
+                title="Era coverage",
+                body=f"Repertoire spans {release_span['min']}–{release_span['max']}, enabling multi-decade storytelling.",
+                metric=f"{release_span['min']}–{release_span['max']}",
+            )
+        )
+
+    return insights
+
+
+async def build_discovery_journeys(session: AsyncSession, limit: int = 3) -> List[DiscoveryJourney]:
+    rows = (
+        await session.execute(
+            select(
+                Track.artist_names.label("artist"),
+                func.count().label("count"),
+                func.max(Track.record_label).label("label"),
+                func.max(Track.genres).label("genres"),
+            )
+            .where(Track.artist_names.isnot(None))
+            .group_by(Track.artist_names)
+            .order_by(func.count().desc())
+            .limit(limit)
+        )
+    ).all()
+
+    journeys: List[DiscoveryJourney] = []
+    for row in rows:
+        artist = (row.artist or "Unknown").split(",")[0].strip()
+        label = row.label or "Independent"
+        genres = [g.strip() for g in (row.genres.split(",") if row.genres else []) if g.strip()]
+        genre = genres[0] if genres else "adjacent scenes"
+        steps = [
+            JourneyStep(title="Seed", description=f"Start with {artist}'s best-known cuts."),
+            JourneyStep(title="Label hop", description=f"Drill into other {label} releases for shared DNA."),
+            JourneyStep(title="Genre quest", description=f"Blend nearby {genre} acts to surprise listeners."),
+        ]
+        journeys.append(DiscoveryJourney(seed=artist, summary=f"From {artist} → {label} → {genre}", steps=steps))
+    return journeys
 
 
 def _fallback_rank(seeds: List[Track], candidates: List[Track]) -> List[Tuple[Track, float, Optional[Dict[str, float]]]]:

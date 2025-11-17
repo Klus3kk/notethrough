@@ -7,14 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_session
 from ...schemas import (
+    DiscoveryJourney,
     RecommendationRequest,
     RecommendationResponseItem,
     StatsResponse,
+    StoryInsight,
     Suggestion,
     TrackDetail,
     TrackSummary,
 )
 from ...services.tracks import (
+    build_discovery_journeys,
+    build_story_insights,
     fetch_recommendations,
     get_track_detail,
     search_tracks,
@@ -70,3 +74,16 @@ async def recommend_endpoint(
 ) -> List[RecommendationResponseItem]:
     recs = await fetch_recommendations(session, payload.uris, limit=25)
     return recs
+
+
+@router.get("/story", response_model=List[StoryInsight], summary="Story mode insights")
+async def story_mode_endpoint(session: AsyncSession = Depends(get_session)) -> List[StoryInsight]:
+    return await build_story_insights(session)
+
+
+@router.get("/journeys", response_model=List[DiscoveryJourney], summary="Discovery journeys")
+async def journeys_endpoint(
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(3, ge=1, le=10),
+) -> List[DiscoveryJourney]:
+    return await build_discovery_journeys(session, limit=limit)

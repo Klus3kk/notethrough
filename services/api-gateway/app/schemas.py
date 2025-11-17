@@ -68,3 +68,20 @@ class RecommendationRequest(BaseModel):
 class RecommendationResponseItem(TrackSummary):
     similarity: float
     components: Optional[dict[str, float]] = None
+
+
+class StoryInsight(BaseModel):
+    title: str
+    body: str
+    metric: str
+
+
+class JourneyStep(BaseModel):
+    title: str
+    description: str
+
+
+class DiscoveryJourney(BaseModel):
+    seed: str
+    summary: str
+    steps: List[JourneyStep]
