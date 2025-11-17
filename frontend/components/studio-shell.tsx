@@ -6,6 +6,7 @@ import { Hero } from "@/components/hero";
 import { BlendConsole } from "@/components/blend-console";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SpotifyRecommender } from "@/components/spotify-recommender";
 
 interface Section {
   id: string;
@@ -35,7 +36,7 @@ const sections: Section[] = [
     title: "Spotify recommender",
     description: "Connect Spotify to blend saved music with live embeddings and surface overlooked gems.",
     tags: ["OAuth", "Live data"],
-    render: () => <Placeholder description="Spotify recommender experience is under construction." />
+    render: () => <SpotifyRecommender />
   },
   {
     id: "spotify-checker",
