@@ -1,7 +1,4 @@
 # Notethrough
-Revolution awaits.
-
-Stay tuned.
 
 ## Quick start
 
@@ -27,21 +24,6 @@ If you want the SQLite dataset copied into Postgres automatically, set `AUTO_IMP
 python services/api-gateway/scripts/import_sqlite.py --create-schema --truncate
 ```
 
-### Tests & linting
-
-```bash
-uv pip install --group test  # once
-pytest services/api-gateway/tests
-(cd frontend && npm run lint)
-```
-
-## Tooling
-
-## Tooling
-
-- Python dependencies are managed with [`uv`](https://docs.astral.sh/uv/). Run `uv sync` from the repo root to create a local environment, or `uv pip install --system --project services/api-gateway` for service-specific installs.
-- Each service has its own `pyproject.toml`; the root `pyproject.toml` defines the uv workspace.
-- Legacy Flask prototype dependencies live under the optional `legacy-prototype` extra.
 
 ## Data Source Disclaimer
 This project uses a privately stored dataset derived from Spotify user data (via Exportify and the Spotify Web API) for educational and portfolio demonstration purposes only.
