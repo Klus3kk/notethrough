@@ -30,7 +30,7 @@ python services/api-gateway/scripts/import_sqlite.py --create-schema --truncate
 ### Tests & linting
 
 ```bash
-uv pip install --group test --locked  # once
+uv pip install --group test  # once
 pytest services/api-gateway/tests
 (cd frontend && npm run lint)
 ```

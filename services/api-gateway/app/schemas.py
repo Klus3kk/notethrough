@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TrackSummary(BaseModel):
@@ -19,8 +19,7 @@ class TrackSummary(BaseModel):
     valence: Optional[float] = Field(alias="Valence")
     tempo: Optional[float] = Field(alias="Tempo")
 
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TrackDetail(TrackSummary):
