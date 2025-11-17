@@ -4,18 +4,35 @@
 
 :root {
   color-scheme: dark;
+  font-family: "Space Grotesk", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body {
   min-height: 100vh;
-  background-image: linear-gradient(160deg, rgba(12, 12, 30, 1) 0%, rgba(12, 12, 30, 0.86) 100%),
-    radial-gradient(circle at top right, rgba(110, 65, 255, 0.25), transparent 55%),
-    radial-gradient(circle at bottom left, rgba(76, 220, 143, 0.18), transparent 60%);
-  background-blend-mode: overlay;
+  background-image: theme("backgroundImage.aurora");
+  color: #f7f9fd;
 }
 
-.card-surface {
-  @apply rounded-3xl bg-card backdrop-blur-xl border border-white/5 shadow-card;
+.panel {
+  background: theme("colors.surface");
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: theme("boxShadow.panel");
+}
+
+.fade-in {
+  animation: fadeIn 0.35s ease forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 ::-webkit-scrollbar {

@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Urbanist } from "next/font/google";
-import { ThemeProvider } from "@/components/theme-provider";
+import { Sora } from "next/font/google";
 
-const urbanist = Urbanist({ subsets: ["latin"], display: "swap" });
+const sora = Sora({ subsets: ["latin"], variable: "--font-base", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Notethrough Dashboard",
@@ -17,10 +16,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${urbanist.className} bg-background text-foreground`}> 
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-          {children}
-        </ThemeProvider>
+      <body className={`${sora.className} bg-background text-foreground`}>
+        {children}
       </body>
     </html>
   );

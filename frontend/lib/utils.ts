@@ -1,7 +1,5 @@
-export function cn(...inputs: Array<string | undefined | false | null>) {
-  return inputs.filter(Boolean).join(" ");
-}
+import { type ClassValue, clsx } from "clsx";
 
-export function formatDouble(value: number) {
-  return value.toFixed(1);
+export function cn(...inputs: ClassValue[]) {
+  return clsx(inputs);
 }

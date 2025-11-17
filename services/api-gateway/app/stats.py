@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .db import get_session
+from .db import get_session, session_scope
 from .schemas import StatsResponse
 from .services.tracks import compute_statistics
 from .cache import get_json, set_json
@@ -23,7 +23,7 @@ async def get_stats(force: bool = False) -> StatsResponse:
             _stats_cache = StatsResponse.parse_obj(cached)
             return _stats_cache
 
-    async with get_session() as session:
+    async with session_scope() as session:
         _stats_cache = await compute_statistics(session)
 
     await set_json(_REDIS_KEY, _stats_cache.dict())

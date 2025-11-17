@@ -12,26 +12,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "hsl(240 15% 8%)",
-        foreground: "hsl(210 20% 96%)",
-        card: "hsla(240, 18%, 12%, 0.85)",
-        cardForeground: "hsl(210 20% 96%)",
-        muted: "hsla(240, 12%, 20%, 0.6)",
+        background: "#0b111d",
+        foreground: "#f7f9fd",
+        surface: "#162033",
+        glow: "#213149",
         accent: {
-          100: "hsl(140 70% 60%)",
-          200: "hsl(35 90% 62%)",
-          300: "hsl(260 80% 65%)"
+          coral: "#ff8a5c",
+          lime: "#a0f075",
+          teal: "#4dd6d0"
         }
       },
-      borderRadius: {
-        xl: "1.25rem"
-      },
       boxShadow: {
-        glow: "0 0 40px rgba(140, 220, 165, 0.25)",
-        card: "0 25px 60px rgba(10, 10, 35, 0.65)"
+        panel: "0 40px 90px rgba(7, 10, 18, 0.65)"
       },
       backgroundImage: {
-        "dashboard-grid": "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)"
+        aurora:
+          "radial-gradient(circle at 20% 20%, rgba(73, 201, 188, 0.3), transparent 45%), radial-gradient(circle at 80% 0%, rgba(255, 138, 92, 0.25), transparent 40%), linear-gradient(130deg, #0b111d 0%, #11182a 35%, #1b1530 100%)"
       }
     }
   },
