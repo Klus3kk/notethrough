@@ -39,3 +39,47 @@ class Track(Base):
         if not self.genres:
             return []
         return [genre.strip() for genre in self.genres.split(",") if genre.strip()]
+
+
+class SpotifyUser(Base):
+    __tablename__ = "spotify_users"
+
+    id = Column(String, primary_key=True)
+    display_name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    followers = Column(Integer, nullable=True)
+
+
+class SpotifyToken(Base):
+    __tablename__ = "spotify_tokens"
+
+    user_id = Column(String, primary_key=True)
+    access_token = Column(String, nullable=False)
+    refresh_token = Column(String, nullable=True)
+    expires_at = Column(Integer, nullable=False)
+
+
+class UserPlaylist(Base):
+    __tablename__ = "user_playlists"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    tracks = Column(Integer, nullable=True)
+    snapshot_id = Column(String, nullable=True)
+
+
+class PlaylistTrack(Base):
+    __tablename__ = "playlist_tracks"
+
+    playlist_id = Column(String, primary_key=True)
+    track_uri = Column("Track URI", String, primary_key=True)
+
+
+class UserTrack(Base):
+    __tablename__ = "user_tracks"
+
+    user_id = Column(String, primary_key=True)
+    track_uri = Column("Track URI", String, primary_key=True)
+    weight = Column(Float, nullable=False)

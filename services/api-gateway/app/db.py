@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.orm import sessionmaker
 
 from .config import get_settings
+from .models import Base
 
 
 _engine: Optional[AsyncEngine] = None
@@ -66,3 +67,9 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with session_scope() as session:
         yield session
+
+
+async def init_db() -> None:
+    engine = _get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)

@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from ...cache import get_client
 from ...config import get_settings
+from ...db import session_scope
+from ...models import SpotifyToken, SpotifyUser
 
 STATE_TTL_SECONDS = 600
 _state_memory: dict[str, float] = {}
@@ -97,6 +99,8 @@ async def spotify_callback(code: str | None = None, state: str | None = None) ->
         )
         if profile_resp.status_code < 400:
             profile_data = profile_resp.json()
+    if profile_data:
+        await _persist_tokens(profile_data, token_data)
     return {
         "access_token": access_token,
         "refresh_token": token_data.get("refresh_token"),
@@ -105,3 +109,37 @@ async def spotify_callback(code: str | None = None, state: str | None = None) ->
         "token_type": token_data.get("token_type"),
         "profile": profile_data,
     }
+
+
+async def _persist_tokens(profile: dict, token_data: dict) -> None:
+    user_id = profile.get("id")
+    if not user_id:
+        return
+    display_name = profile.get("display_name")
+    email = profile.get("email")
+    followers = profile.get("followers", {}).get("total") if isinstance(profile.get("followers"), dict) else None
+
+    expires_in = int(token_data.get("expires_in") or 3600)
+    expires_at = int(time.time()) + expires_in
+    refresh_token = token_data.get("refresh_token")
+
+    async with session_scope() as session:
+        user = await session.get(SpotifyUser, user_id)
+        if not user:
+            user = SpotifyUser(id=user_id)
+            session.add(user)
+        user.display_name = display_name
+        user.email = email
+        user.followers = followers
+
+        token = await session.get(SpotifyToken, user_id)
+        if not token:
+            token = SpotifyToken(user_id=user_id, access_token=token_data.get("access_token"), refresh_token=refresh_token, expires_at=expires_at)
+            session.add(token)
+        else:
+            token.access_token = token_data.get("access_token")
+            if refresh_token:
+                token.refresh_token = refresh_token
+            token.expires_at = expires_at
+
+        await session.commit()
