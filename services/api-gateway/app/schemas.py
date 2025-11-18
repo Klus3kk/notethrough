@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,7 +62,9 @@ class StatsResponse(BaseModel):
 
 
 class RecommendationRequest(BaseModel):
-    uris: List[str]
+    uris: List[str] = Field(default_factory=list)
+    spotify_user_id: Optional[str] = None
+    seed_limit: int = Field(3, ge=1, le=5)
 
 
 class RecommendationResponseItem(TrackSummary):
@@ -85,3 +87,25 @@ class DiscoveryJourney(BaseModel):
     seed: str
     summary: str
     steps: List[JourneyStep]
+
+
+class SpotifySeedTrack(BaseModel):
+    track_uri: str
+    track_name: str
+    artist_names: str
+    in_catalog: bool = True
+
+
+class SpotifyUserPlaylist(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    tracks: Optional[int] = None
+
+
+class TrackFeedback(BaseModel):
+    track_uri: str
+    verdict: Literal["up", "down"]
+    spotify_user_id: Optional[str] = None
+    seed_context: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None

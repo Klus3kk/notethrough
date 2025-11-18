@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { TrackSummary } from "@/hooks/useBlendStudio";
+import type { TrackSummary } from "@/types/tracks";
 
 const templates = [
   "Seeds lean %GENRE% with %PCT%%% energy. Expect punchy drums over smoky textures.",

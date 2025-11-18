@@ -6,12 +6,18 @@ import time
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...cache import get_client
 from ...config import get_settings
-from ...db import session_scope
-from ...models import SpotifyToken, SpotifyUser
+from ...db import get_session, session_scope
+from ...models import PlaylistTrack, SpotifyToken, SpotifyUser, Track, UserPlaylist
+from ...schemas import SpotifySeedTrack, SpotifyUserPlaylist, StatsResponse, TrackSummary
+from ...services.spotify import SpotifyServiceError, fetch_spotify_seed_tracks, sync_user_library
+from ...services.user_stats import compute_user_library_stats
+from ...utils import to_summary_schema
 
 STATE_TTL_SECONDS = 600
 _state_memory: dict[str, float] = {}
@@ -143,3 +149,62 @@ async def _persist_tokens(profile: dict, token_data: dict) -> None:
             token.expires_at = expires_at
 
         await session.commit()
+
+
+@router.get("/spotify/users/{user_id}/top-tracks", response_model=list[SpotifySeedTrack])
+async def spotify_user_top_tracks(
+    user_id: str,
+    limit: int = Query(15, ge=1, le=50),
+    session: AsyncSession = Depends(get_session),
+) -> list[SpotifySeedTrack]:
+    try:
+        return await fetch_spotify_seed_tracks(session, user_id, limit=limit, annotate_catalog=True)
+    except SpotifyServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/spotify/users/{user_id}/stats", response_model=StatsResponse)
+async def spotify_user_stats(
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> StatsResponse:
+    await sync_user_library(session, user_id)
+    stats = await compute_user_library_stats(session, user_id)
+    if stats.totals.total_rows == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No Spotify data synced for this user")
+    return stats
+
+
+@router.get("/spotify/users/{user_id}/playlists", response_model=list[SpotifyUserPlaylist])
+async def spotify_user_playlists(
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> list[SpotifyUserPlaylist]:
+    await sync_user_library(session, user_id)
+    rows = (
+        await session.execute(
+            select(UserPlaylist).where(UserPlaylist.user_id == user_id)
+        )
+    ).scalars().all()
+    return [
+        SpotifyUserPlaylist(id=row.id, name=row.name, description=row.description, tracks=row.tracks)
+        for row in rows
+    ]
+
+
+@router.get("/spotify/users/{user_id}/playlists/{playlist_id}/tracks", response_model=list[TrackSummary])
+async def spotify_user_playlist_tracks(
+    user_id: str,
+    playlist_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> list[TrackSummary]:
+    await sync_user_library(session, user_id)
+    rows = (
+        await session.execute(
+            select(Track)
+            .join(PlaylistTrack, PlaylistTrack.track_uri == Track.track_uri)
+            .join(UserPlaylist, UserPlaylist.id == PlaylistTrack.playlist_id)
+            .where(UserPlaylist.user_id == user_id, PlaylistTrack.playlist_id == playlist_id)
+        )
+    ).scalars().all()
+    return [to_summary_schema(row) for row in rows]

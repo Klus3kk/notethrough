@@ -17,11 +17,28 @@ interface Journey {
 
 export function DiscoveryJourneys() {
   const [journeys, setJourneys] = React.useState<Journey[]>([]);
+  const [userId, setUserId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("spotifyAuth");
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed?.profile?.id) {
+        setUserId(parsed.profile.id);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   React.useEffect(() => {
     async function fetchJourneys() {
       try {
-        const res = await fetch(`${API_BASE}/tracks/journeys`, { cache: "no-store" });
+        const url = new URL(`${API_BASE}/tracks/journeys`);
+        if (userId) url.searchParams.set("spotify_user_id", userId);
+        const res = await fetch(url.toString(), { cache: "no-store" });
         if (!res.ok) throw new Error("Failed");
         const data = (await res.json()) as Journey[];
         setJourneys(data);
@@ -30,7 +47,7 @@ export function DiscoveryJourneys() {
       }
     }
     void fetchJourneys();
-  }, []);
+  }, [userId]);
 
   return (
     <section className="panel space-y-6 p-6">

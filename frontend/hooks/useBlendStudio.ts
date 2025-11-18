@@ -1,25 +1,7 @@
 import * as React from "react";
 
-export interface TrackSummary {
-  track_uri: string;
-  track_name: string;
-  artist_names?: string | null;
-  album_name?: string | null;
-  release_year?: number | null;
-  genres?: string[];
-  popularity?: number | null;
-  duration_ms?: number | null;
-  explicit?: string | null;
-  danceability?: number | null;
-  energy?: number | null;
-  valence?: number | null;
-  tempo?: number | null;
-}
-
-export interface Recommendation extends TrackSummary {
-  similarity: number;
-  components?: Record<string, number> | null;
-}
+import type { TrackSummary, Recommendation } from "@/types/tracks";
+import { normalizeTrackSummary, normalizeRecommendation } from "@/lib/track-normalizers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -42,7 +24,7 @@ export function useBlendStudio() {
       );
       if (!res.ok) throw new Error("Failed to fetch tracks");
       const data = (await res.json()) as TrackSummary[];
-      setResults(data);
+      setResults(data.map(normalizeTrackSummary));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {
@@ -65,7 +47,7 @@ export function useBlendStudio() {
       });
       if (!res.ok) throw new Error("Recommendation request failed");
       const data = (await res.json()) as Recommendation[];
-      setRecommendations(data.slice(0, 10));
+      setRecommendations(data.slice(0, 10).map(normalizeRecommendation));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Blend failed");
     } finally {

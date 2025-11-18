@@ -12,11 +12,28 @@ interface StoryInsight {
 
 export function StoryModePreview() {
   const [insights, setInsights] = React.useState<StoryInsight[]>([]);
+  const [userId, setUserId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("spotifyAuth");
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed?.profile?.id) {
+        setUserId(parsed.profile.id);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   React.useEffect(() => {
     async function fetchInsights() {
       try {
-        const res = await fetch(`${API_BASE}/tracks/story`, { cache: "no-store" });
+        const url = new URL(`${API_BASE}/tracks/story`);
+        if (userId) url.searchParams.set("spotify_user_id", userId);
+        const res = await fetch(url.toString(), { cache: "no-store" });
         if (!res.ok) throw new Error("Failed");
         const data = (await res.json()) as StoryInsight[];
         setInsights(data);
@@ -25,12 +42,14 @@ export function StoryModePreview() {
       }
     }
     void fetchInsights();
-  }, []);
+  }, [userId]);
 
   return (
     <section className="panel space-y-6 p-6">
       <h3 className="text-2xl font-semibold text-white">Story mode analytics</h3>
-      <p className="text-sm text-white/70">Narratives generated after Spotify connection. Each card is export-ready.</p>
+      <p className="text-sm text-white/70">
+        {userId ? "Stories tailored to your synced Spotify library." : "Narratives generated from the public dataset."}
+      </p>
       <div className="grid gap-4 md:grid-cols-3">
         {insights.map((card) => (
           <div key={card.title} className="rounded-2xl border border-white/15 bg-glow/20 p-5 text-sm text-white/80">
