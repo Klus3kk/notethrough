@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { TrackSummary } from "@/hooks/useBlendStudio";
+import type { TrackSummary } from "@/types/tracks";
 
 const templates = [
   "Seeds lean %GENRE% with %PCT%%% energy. Expect punchy drums over smoky textures.",
@@ -36,11 +36,9 @@ export function EffectPreview({ seeds }: { seeds: TrackSummary[] }) {
   }, [seeds]);
 
   return (
-    <section className="panel space-y-3 p-5">
-      <p className="text-xs uppercase tracking-[0.35rem] text-white/50">Blend effect</p>
-      <h3 className="text-2xl font-semibold text-white">{copy.title}</h3>
-      <p className="text-sm text-white/80">{copy.body}</p>
-      <p className="text-xs text-white/50">Story Mode will render this narrative as a shareable card.</p>
-    </section>
+    <div className="p-4 border border-border rounded-md">
+      <h3 className="font-semibold mb-2">{copy.title}</h3>
+      <p className="text-sm text-muted-foreground">{copy.body}</p>
+    </div>
   );
 }

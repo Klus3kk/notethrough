@@ -24,14 +24,6 @@ This document tracks the migration steps from the legacy Flask/SQLite applicatio
 - [ ] Expose LLM-powered Q&A/recommendation explanations (RAG pipeline)
 - [ ] Add background workers (Celery or RQ) if needed for heavy tasks
 
-## Phase 4 – DevOps & polish
-
-- [x] Containerize services (Dockerfiles + docker-compose for dev)
-- [ ] Set up GitHub Actions (lint, tests, build, deploy)
-- [ ] Provision infrastructure (Render/Fly/managed K8s)
-- [ ] Instrument logging/metrics/dashboards
-- [ ] Document deployment & operations runbook
-
 Tracking progress here keeps the main repository files focused while giving a quick overview of what’s done vs. pending.
 
 ## Phase 5 – Differentiator experiences
@@ -71,3 +63,9 @@ Tracking progress here keeps the main repository files focused while giving a qu
 3. Layer the differentiator features above the shared data model, exposing the new endpoints + UI experiences.
 
 Each bullet above should be broken into concrete tickets once we size the backend/fronted effort per feature.
+
+### Delivered to date
+
+- Rebuilt the frontend studio shell with the experience-driven navigation, universal recommender, anonymous track explorer, story mode preview cards, and discovery-journey quest view.
+- Added Spotify OAuth login/callback endpoints plus a Next.js callback route that stores tokens locally.
+- Delivered the Spotify-connected recommender workflow (connect, seed input, recommendations) and the initial Spotify checker analytics panel.

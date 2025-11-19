@@ -3,11 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .api import api_router
 from .config import get_settings
 from .services.ml_client import close_client as close_ml_client
 from .cache import close_client as close_cache_client
+from .db import init_db
 
 
 def create_app() -> FastAPI:
@@ -15,6 +17,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        await init_db()
         try:
             yield
         finally:
@@ -25,6 +28,14 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.4.2",
         lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     app.include_router(api_router)

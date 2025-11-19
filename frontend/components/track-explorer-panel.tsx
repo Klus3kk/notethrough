@@ -40,7 +40,7 @@ export function TrackExplorerPanel() {
             <div key={track.track_uri} className="grid grid-cols-[2fr_1fr_1fr] items-center px-4 py-3 text-white/80">
               <div>
                 <p className="font-semibold text-white">{track.track_name}</p>
-                <p className="text-xs text-white/60">{track.artist_names ?? "Unknown"}</p>
+                <p className="text-xs text-white/60">{track.artist_names ?? "Unknown artist"}</p>
               </div>
               <p className="text-xs text-white/60">{track.album_name ?? "—"}</p>
               <p className="text-xs text-white/60 text-right">{track.release_year ?? "—"}</p>

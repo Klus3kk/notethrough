@@ -1,20 +1,13 @@
 import * as React from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import type { TrackSummary } from "@/types/tracks";
+import { normalizeTrackSummary } from "@/lib/track-normalizers";
 
-export interface ExplorerTrack {
-  track_uri: string;
-  track_name: string;
-  artist_names?: string | null;
-  album_name?: string | null;
-  release_year?: number | null;
-  genres?: string[];
-  popularity?: number | null;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export function useTrackExplorer() {
   const [query, setQuery] = React.useState("");
-  const [results, setResults] = React.useState<ExplorerTrack[]>([]);
+  const [results, setResults] = React.useState<TrackSummary[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -30,8 +23,8 @@ export function useTrackExplorer() {
         cache: "no-store"
       });
       if (!res.ok) throw new Error("Search failed");
-      const data = (await res.json()) as ExplorerTrack[];
-      setResults(data);
+      const data = (await res.json()) as Record<string, any>[];
+      setResults(data.map(normalizeTrackSummary));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {

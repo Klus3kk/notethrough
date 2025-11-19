@@ -3,24 +3,53 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from sqlalchemy import and_, func, literal, select
+from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Track
 from ..schemas import (
+    DiscoveryJourney,
+    JourneyStep,
     RecommendationResponseItem,
+    StoryInsight,
     StatsResponse,
     Suggestion,
     TrackDetail,
     TrackSummary,
 )
 from ..utils import to_detail_schema, to_suggestion_schema, to_summary_schema
+from .spotify import SpotifyServiceError, fetch_spotify_seed_uris
 from .ml_client import MLServiceError, rank_candidates
+from .user_stats import compute_user_library_stats
 
 
 async def search_tracks(session: AsyncSession, query: str, limit: int = 25) -> List[TrackSummary]:
     tokens = [token.strip().lower() for token in query.split() if token.strip()]
     if not tokens:
+        return []
+
+    genre_tokens = [token for token in tokens if token.startswith("genre:")]
+    text_tokens = [token for token in tokens if not token.startswith("genre:")]
+
+    filters = []
+    if text_tokens:
+        if hasattr(Track, "search_text"):
+            column_expr = func.lower(func.coalesce(Track.search_text, ""))
+        else:
+            column_expr = func.lower(
+                func.coalesce(Track.track_name, "")
+                + literal(" ")
+                + func.coalesce(Track.artist_names, "")
+                + literal(" ")
+                + func.coalesce(Track.album_name, "")
+            )
+        filters.append(and_(*[column_expr.like(f"%{token}%") for token in text_tokens]))
+
+    if genre_tokens:
+        genre_filters = [Track.genres.ilike(f"%{token.split('genre:', 1)[1]}%") for token in genre_tokens]
+        filters.append(or_(*genre_filters))
+
+    if not filters:
         return []
 
     if hasattr(Track, "search_text"):
@@ -35,12 +64,7 @@ async def search_tracks(session: AsyncSession, query: str, limit: int = 25) -> L
         )
     conditions = [column_expr.like(f"%{token}%") for token in tokens]
 
-    stmt = (
-        select(Track)
-        .where(and_(*conditions))
-        .order_by(Track.popularity.desc().nullslast())
-        .limit(limit)
-    )
+    stmt = select(Track).where(and_(*filters)).order_by(Track.popularity.desc().nullslast()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [to_summary_schema(track) for track in rows]
 
@@ -50,24 +74,31 @@ async def suggest_tracks(session: AsyncSession, query: str, limit: int = 8) -> L
     if not tokens:
         return []
 
-    if hasattr(Track, "search_text"):
-        column_expr = func.lower(func.coalesce(Track.search_text, ""))
-    else:
-        column_expr = func.lower(
-            func.coalesce(Track.track_name, "")
-            + literal(" ")
-            + func.coalesce(Track.artist_names, "")
-            + literal(" ")
-            + func.coalesce(Track.album_name, "")
-        )
-    conditions = [column_expr.like(f"%{token}%") for token in tokens]
+    genre_tokens = [token for token in tokens if token.startswith("genre:")]
+    text_tokens = [token for token in tokens if not token.startswith("genre:")]
 
-    stmt = (
-        select(Track)
-        .where(and_(*conditions))
-        .order_by(Track.popularity.desc().nullslast())
-        .limit(limit)
-    )
+    filters = []
+    if text_tokens:
+        if hasattr(Track, "search_text"):
+            column_expr = func.lower(func.coalesce(Track.search_text, ""))
+        else:
+            column_expr = func.lower(
+                func.coalesce(Track.track_name, "")
+                + literal(" ")
+                + func.coalesce(Track.artist_names, "")
+                + literal(" ")
+                + func.coalesce(Track.album_name, "")
+            )
+        filters.append(and_(*[column_expr.like(f"%{token}%") for token in text_tokens]))
+
+    if genre_tokens:
+        genre_filters = [Track.genres.ilike(f"%{token.split('genre:', 1)[1]}%") for token in genre_tokens]
+        filters.append(or_(*genre_filters))
+
+    if not filters:
+        return []
+
+    stmt = select(Track).where(and_(*filters)).order_by(Track.popularity.desc().nullslast()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [to_suggestion_schema(track) for track in rows]
 
@@ -79,21 +110,129 @@ async def get_track_detail(session: AsyncSession, uri: str) -> TrackDetail | Non
     return to_detail_schema(row)
 
 
-async def fetch_recommendations(session: AsyncSession, uris: List[str], limit: int = 25) -> List[RecommendationResponseItem]:
-    if not uris:
+async def _resolve_seed_uris(
+    session: AsyncSession,
+    uris: List[str],
+    spotify_user_id: str | None,
+    seed_limit: int,
+) -> List[str]:
+    unique = [uri for uri in dict.fromkeys(uris) if uri]
+    if unique:
+        return unique[:seed_limit]
+    if not spotify_user_id:
+        return []
+    try:
+        return await fetch_spotify_seed_uris(session, spotify_user_id, limit=seed_limit)
+    except SpotifyServiceError:
         return []
 
-    seeds = (await session.execute(select(Track).where(Track.track_uri.in_(uris)))).scalars().all()
+
+def _clamp_range(value: float, margin: float, min_value: float = 0.0, max_value: float = 1.0) -> tuple[float, float]:
+    return max(min_value, value - margin), min(max_value, value + margin)
+
+
+def _extract_seed_filters(seeds: List[Track]) -> tuple[list, dict[str, float]]:
+    filters: list = []
+    stats: dict[str, float] = {}
+
+    years = [seed.release_year for seed in seeds if isinstance(seed.release_year, int)]
+    if years:
+        min_year = min(years) - 5
+        max_year = max(years) + 5
+        filters.append(Track.release_year.between(max(min_year, 1950), min(max_year, 2035)))
+        stats["release_year"] = float(np.mean(years))
+
+    energies = [seed.energy for seed in seeds if isinstance(seed.energy, (int, float))]
+    if energies:
+        energy_avg = float(np.mean(energies))
+        filters.append(Track.energy.between(*_clamp_range(energy_avg, 0.2)))
+        stats["energy"] = energy_avg
+
+    dances = [seed.danceability for seed in seeds if isinstance(seed.danceability, (int, float))]
+    if dances:
+        dance_avg = float(np.mean(dances))
+        filters.append(Track.danceability.between(*_clamp_range(dance_avg, 0.2)))
+        stats["danceability"] = dance_avg
+
+    valences = [seed.valence for seed in seeds if isinstance(seed.valence, (int, float))]
+    if valences:
+        valence_avg = float(np.mean(valences))
+        filters.append(Track.valence.between(*_clamp_range(valence_avg, 0.25)))
+        stats["valence"] = valence_avg
+
+    genre_tokens: Dict[str, int] = {}
+    for seed in seeds:
+        if not seed.genres:
+            continue
+        for raw in seed.genres.split(","):
+            token = raw.strip().lower()
+            if token:
+                genre_tokens[token] = genre_tokens.get(token, 0) + 1
+    if genre_tokens:
+        top_genres = sorted(genre_tokens.items(), key=lambda item: item[1], reverse=True)[:3]
+        genre_filters = [
+            Track.genres.ilike(f"%{genre}%")
+            for genre, _ in top_genres
+        ]
+        if genre_filters:
+            filters.append(or_(*genre_filters))
+
+    return filters, stats
+
+
+def _order_expressions(stats: dict[str, float]) -> List:
+    orders: List = []
+    if "release_year" in stats:
+        target = stats["release_year"]
+        orders.append(func.abs(func.coalesce(Track.release_year, target) - target))
+    if "energy" in stats:
+        target = stats["energy"]
+        orders.append(func.abs(func.coalesce(Track.energy, target) - target))
+    if "danceability" in stats:
+        target = stats["danceability"]
+        orders.append(func.abs(func.coalesce(Track.danceability, target) - target))
+    if "valence" in stats:
+        target = stats["valence"]
+        orders.append(func.abs(func.coalesce(Track.valence, target) - target))
+    return orders
+
+
+def _candidate_statement(seed_uris: List[str], filters: Optional[list], stats: dict[str, float], limit: int) -> select:
+    stmt = select(Track).where(~Track.track_uri.in_(seed_uris)).limit(max(limit * 10, 200))
+    if filters:
+        stmt = stmt.where(and_(*filters))
+    orders = _order_expressions(stats)
+    if orders:
+        stmt = stmt.order_by(*orders, Track.track_uri)
+    else:
+        stmt = stmt.order_by(Track.track_uri)
+    return stmt
+
+
+async def fetch_recommendations(
+    session: AsyncSession,
+    uris: List[str],
+    limit: int = 25,
+    spotify_user_id: str | None = None,
+    seed_limit: int = 3,
+) -> List[RecommendationResponseItem]:
+    seed_uris = await _resolve_seed_uris(session, uris, spotify_user_id, seed_limit)
+    if not seed_uris:
+        return []
+
+    seeds = (await session.execute(select(Track).where(Track.track_uri.in_(seed_uris)))).scalars().all()
     if not seeds:
         return []
 
-    candidate_stmt = (
-        select(Track)
-        .where(~Track.track_uri.in_(uris))
-        .order_by(Track.popularity.desc().nullslast())
-        .limit(max(limit * 10, 200))
-    )
+    filters, stats = _extract_seed_filters(seeds)
+    candidate_stmt = _candidate_statement(seed_uris, filters, stats, limit)
     candidates = (await session.execute(candidate_stmt)).scalars().all()
+
+    if not candidates:
+        # fall back to a relaxed pool to guarantee output
+        relaxed_stmt = _candidate_statement(seed_uris, None, {}, limit)
+        candidates = (await session.execute(relaxed_stmt)).scalars().all()
+
     if not candidates:
         return []
 
@@ -237,6 +376,104 @@ async def compute_statistics(session: AsyncSession) -> StatsResponse:
         yearly_release_counts=yearly_counts,
         top_tracks=top_tracks,
     )
+
+
+async def build_story_insights(session: AsyncSession, user_id: str | None = None) -> List[StoryInsight]:
+    if user_id:
+        stats = await compute_user_library_stats(session, user_id)
+        scope = "your library"
+    else:
+        stats = await compute_statistics(session)
+        scope = "the catalog"
+
+    if stats.totals.total_rows == 0:
+        return []
+
+    insights: List[StoryInsight] = []
+
+    if stats.top_genres:
+        top_genre = stats.top_genres[0]
+        insights.append(
+            StoryInsight(
+                title=f"Top {top_genre['name']} wave",
+                body=f"{scope.capitalize()} leans heavily into this genre—keep it in rotation.",
+                metric=f"{top_genre['count']} tracks",
+            )
+        )
+
+    avg_energy = stats.totals.average_energy
+    avg_dance = stats.totals.average_danceability
+    if avg_energy is not None and avg_dance is not None:
+        tone = "uptempo" if avg_energy >= avg_dance else "laid-back"
+        insights.append(
+            StoryInsight(
+                title="Energy vs danceability",
+                body=f"{scope.capitalize()} skews toward {tone} mixes.",
+                metric=f"Energy {avg_energy*100:.0f}% · Dance {avg_dance*100:.0f}%",
+            )
+        )
+
+    release_span = stats.totals.release_year_range
+    if release_span and release_span.get("min") and release_span.get("max"):
+        insights.append(
+            StoryInsight(
+                title="Era coverage",
+                body=f"Repertoire spans {release_span['min']}–{release_span['max']}, enabling multi-decade storytelling.",
+                metric=f"{release_span['min']}–{release_span['max']}",
+            )
+        )
+
+    return insights
+
+
+async def build_discovery_journeys(session: AsyncSession, limit: int = 3, user_id: str | None = None) -> List[DiscoveryJourney]:
+    journeys: List[DiscoveryJourney] = []
+    if user_id:
+        stats = await compute_user_library_stats(session, user_id)
+        artists = [item["name"] for item in stats.top_artists if item.get("name")]
+        genres = [item["name"] for item in stats.top_genres if item.get("name")]
+        if not artists:
+            return journeys
+        genre_cycle = genres if genres else ["adjacent scenes"]
+        for idx, artist in enumerate(artists[:limit]):
+            anchor_genre = genre_cycle[idx % len(genre_cycle)]
+            steps = [
+                JourneyStep(title="Warm-up", description=f"Spin {artist}'s essentials to lock the palette."),
+                JourneyStep(title="Neighbor hop", description=f"Blend other {anchor_genre} leaders for cohesion."),
+                JourneyStep(title="Influence dive", description=f"Trace who influenced {artist} and sample their catalogues."),
+                JourneyStep(title="Mood stretch", description=f"Introduce an adjacent genre for controlled chaos."),
+                JourneyStep(title="Playlist ready", description=f"Mix the best finds into a shareable quest."),
+            ]
+            journeys.append(DiscoveryJourney(seed=artist, summary=f"{artist} → {anchor_genre} → influence map", steps=steps))
+        return journeys
+
+    rows = (
+        await session.execute(
+            select(
+                Track.artist_names.label("artist"),
+                func.count().label("count"),
+                func.max(Track.record_label).label("label"),
+                func.max(Track.genres).label("genres"),
+            )
+            .where(Track.artist_names.isnot(None))
+            .group_by(Track.artist_names)
+            .order_by(func.count().desc())
+            .limit(limit)
+        )
+    ).all()
+
+    for row in rows:
+        artist = (row.artist or "Unknown").split(",")[0].strip()
+        label = row.label or "Independent"
+        genres = [g.strip() for g in (row.genres.split(",") if row.genres else []) if g.strip()]
+        genre = genres[0] if genres else "adjacent scenes"
+        steps = [
+            JourneyStep(title="Seed", description=f"Start with {artist}'s best-known cuts."),
+            JourneyStep(title="Label hop", description=f"Drill into other {label} releases for shared DNA."),
+            JourneyStep(title="Genre quest", description=f"Blend nearby {genre} acts to surprise listeners."),
+        ]
+        journeys.append(DiscoveryJourney(seed=artist, summary=f"From {artist} → {label} → {genre}", steps=steps))
+    return journeys
 
 
 def _fallback_rank(seeds: List[Track], candidates: List[Track]) -> List[Tuple[Track, float, Optional[Dict[str, float]]]]:
