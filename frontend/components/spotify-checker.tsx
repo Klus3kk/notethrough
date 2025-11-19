@@ -399,13 +399,6 @@ function RankedList({ title, items }: { title: string; items: CountStat[] }) {
 }
 
 function ReleaseTimeline({ data, spanLabel }: { data: YearlyCount[]; spanLabel: string }) {
-  if (!data.length) {
-    return (
-      <div className="rounded-2xl border border-white/10 bg-surface/40 px-4 py-4 text-sm text-white/70">
-        Release timeline data will appear as soon as tracks are loaded.
-      </div>
-    );
-  }
   const maxCount = Math.max(...data.map((entry) => entry.count));
   return (
     <div className="rounded-2xl border border-white/10 bg-surface/40 px-4 py-4 text-white/80">

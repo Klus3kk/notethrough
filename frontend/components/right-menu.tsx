@@ -30,20 +30,12 @@ export function RightMenu({ open, onClose }: { open: boolean; onClose: () => voi
       )}
     >
       <div className="flex items-center justify-between text-sm uppercase tracking-[0.3rem] text-white/50">
-        <span>Studio Menu</span>
+        <span>Menu</span>
         <button className="text-white/70 lg:hidden" onClick={onClose}>
           Close
         </button>
       </div>
       <div className="mt-6 space-y-6 text-sm">
-        <section>
-          <p className="text-xs uppercase tracking-[0.3rem] text-white/40">Placeholders</p>
-          <ul className="mt-3 space-y-3 text-white/80">
-            <li>• Recent blends (coming soon)</li>
-            <li>• Saved playlists</li>
-            <li>• Notifications</li>
-          </ul>
-        </section>
         <section id="roadmap">
           <p className="text-xs uppercase tracking-[0.3rem] text-white/40">Features shipping</p>
           <div className="mt-4 space-y-4">
@@ -55,12 +47,6 @@ export function RightMenu({ open, onClose }: { open: boolean; onClose: () => voi
               </div>
             ))}
           </div>
-        </section>
-        <section>
-          <p className="text-xs uppercase tracking-[0.3rem] text-white/40">Support</p>
-          <Button variant="secondary" className="mt-3 w-full">
-            Contact team
-          </Button>
         </section>
       </div>
     </aside>

@@ -198,24 +198,6 @@ export function SpotifyRecommender() {
     return autoSeeds.slice(0, seedLimit).map((seed) => seed.track_uri);
   }, [seedMode, manualSeeds, autoSeeds, seedLimit]);
 
-  const blendStory = React.useMemo(() => {
-    const names =
-      seedMode === "manual"
-        ? manualSeeds.map((seed) => seed.track_name ?? "Unknown")
-        : autoSeeds.slice(0, seedLimit).map((seed) => seed.track_name);
-    const clean = names.filter(Boolean);
-    if (!clean.length) {
-      return "Select seeds to preview how the blend will behave.";
-    }
-    if (clean.length === 1) {
-      return `Orbiting ${clean[0]} and nearby textures for a focused story.`;
-    }
-    if (clean.length === 2) {
-      return `Bridging ${clean[0]} with ${clean[1]} for a balanced duet of influences.`;
-    }
-    return `Fusing ${clean.slice(0, 3).join(", ")} to keep the blend in that leftfield art-pop lane.`;
-  }, [seedMode, manualSeeds, autoSeeds, seedLimit]);
-
   const connect = async () => {
     setError(null);
     try {
@@ -256,7 +238,7 @@ export function SpotifyRecommender() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h3 className="text-2xl font-semibold text-foreground">Spotify recommender</h3>
-          <p className="text-sm text-white/70">Blend Spotify favourites with the offline dataset. No pinned seeds needed.</p>
+          <p className="text-sm text-white/70">Blend Spotify favourites with the offline dataset. </p>
         </div>
         {connected ? (
           <Button variant="secondary" onClick={() => { localStorage.removeItem("spotifyAuth"); window.location.reload(); }}>
@@ -378,11 +360,6 @@ export function SpotifyRecommender() {
             </p>
           </div>
         )}
-        <div className="rounded-2xl border border-white/10 bg-surface/70 p-4">
-          <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Blend story</p>
-          <p className="mt-2 text-sm text-white/80">{blendStory}</p>
-          <p className="mt-1 text-xs text-white/50">Seeds update as you change ranges or manual selections.</p>
-        </div>
         <div className="flex items-center gap-3">
           <Button onClick={generateBlend} disabled={loading || (seedMode === "spotify" && !connected)}>
             {loading ? "Generating…" : "Generate blend"}

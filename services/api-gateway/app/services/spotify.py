@@ -6,6 +6,7 @@ from typing import Dict, List, Sequence
 
 import httpx
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
@@ -241,8 +242,14 @@ async def _persist_user_playlists(session: AsyncSession, user_id: str, playlists
             )
         )
         unique_uris = list(dict.fromkeys(playlist.get("track_uris") or []))
-        for uri in unique_uris:
-            session.add(PlaylistTrack(playlist_id=playlist["id"], track_uri=uri))
+        if unique_uris:
+            stmt = (
+                insert(PlaylistTrack)
+                .values([{"playlist_id": playlist["id"], "track_uri": uri} for uri in unique_uris])
+                .on_conflict_do_nothing(index_elements=[PlaylistTrack.playlist_id, PlaylistTrack.track_uri])
+            )
+            await session.execute(stmt)
+    await session.flush()
     await session.commit()
 
 
@@ -251,12 +258,17 @@ async def _persist_user_tracks(session: AsyncSession, user_id: str, weights: Dic
         return
     await session.execute(delete(UserTrack).where(UserTrack.user_id == user_id))
     await session.flush()
-    session.add_all(
-        [
-            UserTrack(user_id=user_id, track_uri=uri, weight=float(weight))
-            for uri, weight in weights.items()
-        ]
-    )
+    rows = [
+        {"user_id": user_id, "track_uri": uri, "weight": float(weight)}
+        for uri, weight in weights.items()
+    ]
+    if rows:
+        insert_stmt = insert(UserTrack)
+        stmt = insert_stmt.values(rows).on_conflict_do_update(
+            index_elements=[UserTrack.user_id, UserTrack.track_uri],
+            set_={"weight": insert_stmt.excluded.weight},
+        )
+        await session.execute(stmt)
     await session.commit()
 
 

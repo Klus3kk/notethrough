@@ -5,7 +5,7 @@ import { Sora } from "next/font/google";
 const sora = Sora({ subsets: ["latin"], variable: "--font-base", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Notethrough Dashboard",
+  title: "Notethrough",
   description: "Data-driven Spotify intelligence dashboard"
 };
 

@@ -22,11 +22,6 @@ export function Hero({ title, description, tags, actionLabel }: HeroProps) {
           </span>
         ))}
       </div>
-      {actionLabel && (
-        <div className="pt-2">
-          <Button variant="primary">{actionLabel}</Button>
-        </div>
-      )}
     </section>
   );
 }

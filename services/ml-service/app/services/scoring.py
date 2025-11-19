@@ -146,9 +146,13 @@ def _compute_weighted_centroid(tracks: Iterable[Track], weights: Iterable[float]
 
 def _content_similarity(track: Track, centroid: np.ndarray) -> float:
     vec = _track_vector(track)
-    dist = np.linalg.norm(vec - centroid)
-    similarity = 1.0 / (1.0 + dist)
-    return float(similarity)
+    if np.allclose(centroid, 0):
+        return 0.5
+    vec_norm = vec / np.linalg.norm(vec) if np.linalg.norm(vec) > 0 else vec
+    centroid_norm = centroid / np.linalg.norm(centroid) if np.linalg.norm(centroid) > 0 else centroid
+    similarity = float(np.clip(np.dot(vec_norm, centroid_norm), -1.0, 1.0))
+    similarity = (similarity + 1.0) / 2.0
+    return float(np.clip(similarity, 0.05, 0.95))
 
 
 def _collaborative_component(track: Track) -> float:
