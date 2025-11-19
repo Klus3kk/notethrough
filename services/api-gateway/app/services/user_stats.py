@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import List
+from typing import List, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Track, UserTrack
+from ..models import PlaylistTrack, Track, UserTrack
 from ..schemas import StatsResponse, StatsTotals
 
 
@@ -28,23 +28,9 @@ def _empty_stats() -> StatsResponse:
     )
 
 
-async def compute_user_library_stats(session: AsyncSession, user_id: str) -> StatsResponse:
-    records = (
-        await session.execute(
-            select(Track, UserTrack.weight)
-            .join(UserTrack, Track.track_uri == UserTrack.track_uri)
-            .where(UserTrack.user_id == user_id)
-        )
-    ).all()
-
-    if not records:
+def _build_stats(tracks: Sequence[Track], weights: dict[str, float] | None = None) -> StatsResponse:
+    if not tracks:
         return _empty_stats()
-
-    tracks: List[Track] = []
-    weights: dict[str, float] = {}
-    for track, weight in records:
-        tracks.append(track)
-        weights[track.track_uri] = float(weight or 0.0)
 
     total_rows = len(tracks)
     unique_track_uris = {track.track_uri for track in tracks}
@@ -94,9 +80,11 @@ async def compute_user_library_stats(session: AsyncSession, user_id: str) -> Sta
 
     yearly_counts = [
         {"year": year, "count": count}
-        for year, count in Counter(release_years).most_common()
+        for year, count in Counter(release_years).items()
     ]
     yearly_counts.sort(key=lambda item: item["year"])
+
+    weight_map = weights or {}
 
     top_tracks = sorted(
         [
@@ -105,7 +93,7 @@ async def compute_user_library_stats(session: AsyncSession, user_id: str) -> Sta
                 "Track Name": track.track_name,
                 "Artist Name(s)": track.artist_names,
                 "Popularity": float(track.popularity) if track.popularity is not None else None,
-                "weight": weights.get(track.track_uri, 0.0),
+                "weight": weight_map.get(track.track_uri, 0.0),
             }
             for track in tracks
         ],
@@ -133,3 +121,36 @@ async def compute_user_library_stats(session: AsyncSession, user_id: str) -> Sta
         yearly_release_counts=yearly_counts,
         top_tracks=top_tracks,
     )
+
+
+async def compute_user_library_stats(session: AsyncSession, user_id: str) -> StatsResponse:
+    records = (
+        await session.execute(
+            select(Track, UserTrack.weight)
+            .join(UserTrack, Track.track_uri == UserTrack.track_uri)
+            .where(UserTrack.user_id == user_id)
+        )
+    ).all()
+
+    if not records:
+        return _empty_stats()
+
+    tracks: List[Track] = []
+    weights: dict[str, float] = {}
+    for track, weight in records:
+        tracks.append(track)
+        weights[track.track_uri] = float(weight or 0.0)
+
+    return _build_stats(tracks, weights)
+
+
+async def compute_playlist_stats(session: AsyncSession, user_id: str, playlist_id: str) -> StatsResponse:
+    tracks = (
+        await session.execute(
+            select(Track)
+            .join(PlaylistTrack, PlaylistTrack.track_uri == Track.track_uri)
+            .where(PlaylistTrack.playlist_id == playlist_id)
+        )
+    ).scalars().all()
+
+    return _build_stats(tracks)

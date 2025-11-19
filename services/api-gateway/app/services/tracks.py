@@ -28,31 +28,28 @@ async def search_tracks(session: AsyncSession, query: str, limit: int = 25) -> L
     if not tokens:
         return []
 
-    if hasattr(Track, "search_text"):
-        column_expr = func.lower(func.coalesce(Track.search_text, ""))
-    else:
-        column_expr = func.lower(
-            func.coalesce(Track.track_name, "")
-            + literal(" ")
-            + func.coalesce(Track.artist_names, "")
-            + literal(" ")
-            + func.coalesce(Track.album_name, "")
-        )
-    conditions = [column_expr.like(f"%{token}%") for token in tokens]
+    genre_tokens = [token for token in tokens if token.startswith("genre:")]
+    text_tokens = [token for token in tokens if not token.startswith("genre:")]
 
-    stmt = (
-        select(Track)
-        .where(and_(*conditions))
-        .order_by(Track.popularity.desc().nullslast())
-        .limit(limit)
-    )
-    rows = (await session.execute(stmt)).scalars().all()
-    return [to_summary_schema(track) for track in rows]
+    filters = []
+    if text_tokens:
+        if hasattr(Track, "search_text"):
+            column_expr = func.lower(func.coalesce(Track.search_text, ""))
+        else:
+            column_expr = func.lower(
+                func.coalesce(Track.track_name, "")
+                + literal(" ")
+                + func.coalesce(Track.artist_names, "")
+                + literal(" ")
+                + func.coalesce(Track.album_name, "")
+            )
+        filters.append(and_(*[column_expr.like(f"%{token}%") for token in text_tokens]))
 
+    if genre_tokens:
+        genre_filters = [Track.genres.ilike(f"%{token.split('genre:', 1)[1]}%") for token in genre_tokens]
+        filters.append(or_(*genre_filters))
 
-async def suggest_tracks(session: AsyncSession, query: str, limit: int = 8) -> List[Suggestion]:
-    tokens = [token.strip().lower() for token in query.split() if token.strip()]
-    if not tokens:
+    if not filters:
         return []
 
     if hasattr(Track, "search_text"):
@@ -67,12 +64,41 @@ async def suggest_tracks(session: AsyncSession, query: str, limit: int = 8) -> L
         )
     conditions = [column_expr.like(f"%{token}%") for token in tokens]
 
-    stmt = (
-        select(Track)
-        .where(and_(*conditions))
-        .order_by(Track.popularity.desc().nullslast())
-        .limit(limit)
-    )
+    stmt = select(Track).where(and_(*filters)).order_by(Track.popularity.desc().nullslast()).limit(limit)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [to_summary_schema(track) for track in rows]
+
+
+async def suggest_tracks(session: AsyncSession, query: str, limit: int = 8) -> List[Suggestion]:
+    tokens = [token.strip().lower() for token in query.split() if token.strip()]
+    if not tokens:
+        return []
+
+    genre_tokens = [token for token in tokens if token.startswith("genre:")]
+    text_tokens = [token for token in tokens if not token.startswith("genre:")]
+
+    filters = []
+    if text_tokens:
+        if hasattr(Track, "search_text"):
+            column_expr = func.lower(func.coalesce(Track.search_text, ""))
+        else:
+            column_expr = func.lower(
+                func.coalesce(Track.track_name, "")
+                + literal(" ")
+                + func.coalesce(Track.artist_names, "")
+                + literal(" ")
+                + func.coalesce(Track.album_name, "")
+            )
+        filters.append(and_(*[column_expr.like(f"%{token}%") for token in text_tokens]))
+
+    if genre_tokens:
+        genre_filters = [Track.genres.ilike(f"%{token.split('genre:', 1)[1]}%") for token in genre_tokens]
+        filters.append(or_(*genre_filters))
+
+    if not filters:
+        return []
+
+    stmt = select(Track).where(and_(*filters)).order_by(Track.popularity.desc().nullslast()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [to_suggestion_schema(track) for track in rows]
 
@@ -408,14 +434,17 @@ async def build_discovery_journeys(session: AsyncSession, limit: int = 3, user_i
         genres = [item["name"] for item in stats.top_genres if item.get("name")]
         if not artists:
             return journeys
+        genre_cycle = genres if genres else ["adjacent scenes"]
         for idx, artist in enumerate(artists[:limit]):
-            anchor_genre = genres[idx] if idx < len(genres) else (genres[0] if genres else "adjacent scenes")
+            anchor_genre = genre_cycle[idx % len(genre_cycle)]
             steps = [
-                JourneyStep(title="Start", description=f"Spin {artist}'s essentials to ground the vibe."),
-                JourneyStep(title="Nearby influence", description=f"Blend other {anchor_genre} staples for cohesion."),
-                JourneyStep(title="Stretch goal", description=f"Jump to adjacent genres to keep exploration fresh."),
+                JourneyStep(title="Warm-up", description=f"Spin {artist}'s essentials to lock the palette."),
+                JourneyStep(title="Neighbor hop", description=f"Blend other {anchor_genre} leaders for cohesion."),
+                JourneyStep(title="Influence dive", description=f"Trace who influenced {artist} and sample their catalogues."),
+                JourneyStep(title="Mood stretch", description=f"Introduce an adjacent genre for controlled chaos."),
+                JourneyStep(title="Playlist ready", description=f"Mix the best finds into a shareable quest."),
             ]
-            journeys.append(DiscoveryJourney(seed=artist, summary=f"{artist} → {anchor_genre} → discovery", steps=steps))
+            journeys.append(DiscoveryJourney(seed=artist, summary=f"{artist} → {anchor_genre} → influence map", steps=steps))
         return journeys
 
     rows = (

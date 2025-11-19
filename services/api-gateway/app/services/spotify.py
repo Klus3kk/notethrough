@@ -185,7 +185,7 @@ async def _fetch_playlist_tracks(access_token: str, playlist_id: str, limit: int
     return collected
 
 
-async def _fetch_user_playlists(access_token: str, limit: int = 20) -> List[dict]:
+async def _fetch_user_playlists(access_token: str, user_id: str, limit: int = 20) -> List[dict]:
     headers = {"Authorization": f"Bearer {access_token}"}
     playlists: List[dict] = []
     url = "https://api.spotify.com/v1/me/playlists"
@@ -199,7 +199,8 @@ async def _fetch_user_playlists(access_token: str, limit: int = 20) -> List[dict
             data = resp.json()
             for item in data.get("items", []):
                 playlist_id = item.get("id")
-                if not playlist_id:
+                owner_id = item.get("owner", {}).get("id")
+                if not playlist_id or owner_id != user_id:
                     continue
                 playlist = {
                     "id": playlist_id,
@@ -215,7 +216,8 @@ async def _fetch_user_playlists(access_token: str, limit: int = 20) -> List[dict
             params = None
 
     for playlist in playlists:
-        playlist["track_uris"] = await _fetch_playlist_tracks(access_token, playlist["id"])
+        track_uris = await _fetch_playlist_tracks(access_token, playlist["id"])
+        playlist["track_uris"] = list(dict.fromkeys(track_uris))
     return playlists
 
 
@@ -226,6 +228,7 @@ async def _persist_user_playlists(session: AsyncSession, user_id: str, playlists
     if existing_ids:
         await session.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_id.in_(existing_ids)))
     await session.execute(delete(UserPlaylist).where(UserPlaylist.user_id == user_id))
+    await session.flush()
 
     for playlist in playlists:
         session.add(
@@ -237,7 +240,8 @@ async def _persist_user_playlists(session: AsyncSession, user_id: str, playlists
                 tracks=playlist.get("tracks_total"),
             )
         )
-        for uri in playlist.get("track_uris") or []:
+        unique_uris = list(dict.fromkeys(playlist.get("track_uris") or []))
+        for uri in unique_uris:
             session.add(PlaylistTrack(playlist_id=playlist["id"], track_uri=uri))
     await session.commit()
 
@@ -246,6 +250,7 @@ async def _persist_user_tracks(session: AsyncSession, user_id: str, weights: Dic
     if not weights:
         return
     await session.execute(delete(UserTrack).where(UserTrack.user_id == user_id))
+    await session.flush()
     session.add_all(
         [
             UserTrack(user_id=user_id, track_uri=uri, weight=float(weight))
@@ -293,7 +298,7 @@ async def sync_user_library(session: AsyncSession, user_id: str, saved_limit: in
 
     await _persist_user_tracks(session, user_id, weights)
 
-    playlists = await _fetch_user_playlists(access_token, limit=20)
+    playlists = await _fetch_user_playlists(access_token, user_id, limit=20)
     await _persist_user_playlists(session, user_id, playlists)
     _library_sync_memory[user_id] = now
 
@@ -303,12 +308,16 @@ async def fetch_spotify_seed_tracks(
     user_id: str,
     limit: int = 15,
     annotate_catalog: bool = False,
+    time_range: str | None = None,
 ) -> List[SpotifySeedTrack]:
     ranges = ["short_term", "medium_term", "long_term"]
+    if time_range in ranges:
+        ranges = [time_range]
+
     seen: set[str] = set()
     tracks: List[SpotifySeedTrack] = []
-    for time_range in ranges:
-        batch = await _pull_user_top_tracks(session, user_id, limit=min(limit, 50), time_range=time_range)
+    for tr in ranges:
+        batch = await _pull_user_top_tracks(session, user_id, limit=min(limit, 50), time_range=tr)
         for track in batch:
             if track.track_uri in seen:
                 continue

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DatasetStats } from "@/hooks/useDatasetStats";
 import type { TrackSummary } from "@/types/tracks";
+import { normalizeTrackSummary } from "@/lib/track-normalizers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -31,6 +32,9 @@ export function SpotifyChecker() {
   const [activePlaylistId, setActivePlaylistId] = React.useState<string | null>(null);
   const [playlistTracks, setPlaylistTracks] = React.useState<Record<string, TrackSummary[]>>({});
   const [playlistTracksLoading, setPlaylistTracksLoading] = React.useState(false);
+  const [playlistStats, setPlaylistStats] = React.useState<Record<string, DatasetStats>>({});
+  const [playlistStatsLoading, setPlaylistStatsLoading] = React.useState(false);
+  const [view, setView] = React.useState<"overview" | "playlists">("overview");
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -94,27 +98,49 @@ export function SpotifyChecker() {
     }
   }, [profile?.id]);
 
-  const loadPlaylistTracks = React.useCallback(
+  const ensurePlaylistData = React.useCallback(
     async (playlistId: string) => {
-      if (!profile?.id || playlistTracks[playlistId]) return;
-      setPlaylistTracksLoading(true);
-      try {
-        const resp = await fetch(
-          `${API_BASE}/auth/spotify/users/${profile.id}/playlists/${playlistId}/tracks`,
-          { cache: "no-store" }
-        );
+      if (!profile?.id) return;
+      if (!playlistTracks[playlistId]) {
+        setPlaylistTracksLoading(true);
+        try {
+          const resp = await fetch(
+            `${API_BASE}/auth/spotify/users/${profile.id}/playlists/${playlistId}/tracks`,
+            { cache: "no-store" }
+          );
         const payload = await resp.json();
         if (!resp.ok) {
           throw new Error((payload as { detail?: string })?.detail ?? "Unable to load playlist tracks");
         }
-        setPlaylistTracks((prev) => ({ ...prev, [playlistId]: payload as TrackSummary[] }));
-      } catch (err) {
-        setPlaylistError(err instanceof Error ? err.message : "Unable to load playlist tracks");
-      } finally {
-        setPlaylistTracksLoading(false);
+        const normalized = (payload as Record<string, any>[]).map((entry) => normalizeTrackSummary(entry));
+        setPlaylistTracks((prev) => ({ ...prev, [playlistId]: normalized }));
+        } catch (err) {
+          setPlaylistError(err instanceof Error ? err.message : "Unable to load playlist tracks");
+        } finally {
+          setPlaylistTracksLoading(false);
+        }
+      }
+
+      if (!playlistStats[playlistId]) {
+        setPlaylistStatsLoading(true);
+        try {
+          const resp = await fetch(
+            `${API_BASE}/auth/spotify/users/${profile.id}/playlists/${playlistId}/stats`,
+            { cache: "no-store" }
+          );
+          const payload = await resp.json();
+          if (!resp.ok) {
+            throw new Error((payload as { detail?: string })?.detail ?? "Unable to load playlist stats");
+          }
+          setPlaylistStats((prev) => ({ ...prev, [playlistId]: payload as DatasetStats }));
+        } catch (err) {
+          setPlaylistError(err instanceof Error ? err.message : "Unable to load playlist stats");
+        } finally {
+          setPlaylistStatsLoading(false);
+        }
       }
     },
-    [profile?.id, playlistTracks]
+    [profile?.id, playlistTracks, playlistStats]
   );
 
   React.useEffect(() => {
@@ -169,7 +195,30 @@ export function SpotifyChecker() {
       {loading && connected && <p className="text-sm text-white/60">Syncing your latest listening history…</p>}
       {connected && !loading && !stats && !error && <p className="text-sm text-white/60">No Spotify data synced yet.</p>}
 
-      {stats && (
+      <div className="flex gap-3 text-xs uppercase tracking-[0.25rem] text-white/60">
+        <button
+          type="button"
+          onClick={() => setView("overview")}
+          className={cn(
+            "rounded-full border px-3 py-1",
+            view === "overview" ? "border-white text-white" : "border-white/20"
+          )}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("playlists")}
+          className={cn(
+            "rounded-full border px-3 py-1",
+            view === "playlists" ? "border-white text-white" : "border-white/20"
+          )}
+        >
+          Playlists
+        </button>
+      </div>
+
+      {stats && view === "overview" && (
         <>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Tracks synced" value={formatNumber(totals?.total_rows)} hint="From your Spotify library" />
@@ -188,7 +237,7 @@ export function SpotifyChecker() {
           </div>
         </>
       )}
-      {connected && (
+      {connected && view === "playlists" && (
         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
             <div className="flex items-center justify-between text-sm">
@@ -206,7 +255,7 @@ export function SpotifyChecker() {
                     key={playlist.id}
                     onClick={() => {
                       setActivePlaylistId(playlist.id);
-                      void loadPlaylistTracks(playlist.id);
+                      void ensurePlaylistData(playlist.id);
                     }}
                     className={cn(
                       "w-full border px-3 py-2 text-left text-sm transition",
@@ -245,6 +294,36 @@ export function SpotifyChecker() {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
+            <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Playlist stats</p>
+            {playlistStatsLoading && <p className="text-sm text-white/60">Loading playlist stats…</p>}
+            {!playlistStatsLoading && activePlaylistId && playlistStats[activePlaylistId] && (
+              <>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <StatCard label="Tracks" value={formatNumber(playlistStats[activePlaylistId].totals.total_rows)} />
+                  <StatCard label="Unique artists" value={formatNumber(playlistStats[activePlaylistId].totals.unique_artists)} />
+                  <StatCard
+                    label="Avg popularity"
+                    value={formatPopularity(playlistStats[activePlaylistId].totals.average_popularity)}
+                  />
+                  <StatCard
+                    label="Energy vs dance"
+                    value={`${formatPercent(playlistStats[activePlaylistId].totals.average_energy)} / ${formatPercent(
+                      playlistStats[activePlaylistId].totals.average_danceability
+                    )}`}
+                  />
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <RankedList title="Top artists" items={playlistStats[activePlaylistId].top_artists.slice(0, 4)} />
+                  <RankedList title="Top genres" items={playlistStats[activePlaylistId].top_genres.slice(0, 4)} />
+                </div>
+              </>
+            )}
+            {activePlaylistId && !playlistStats[activePlaylistId] && !playlistStatsLoading && (
+              <p className="text-sm text-white/60">Select a playlist or refresh to load stats.</p>
+            )}
+            {!activePlaylistId && <p className="text-sm text-white/60">Select a playlist to see analytics.</p>}
           </div>
         </div>
       )}
@@ -349,6 +428,10 @@ function ReleaseTimeline({ data, spanLabel }: { data: YearlyCount[]; spanLabel: 
   );
 }
 
+function pickLabel(entry: TopTrack, legacyKey: string, fallback: string) {
+  return (entry as any)[legacyKey] ?? (entry as any)[legacyKey.replace(" ", "_")] ?? fallback;
+}
+
 function TopTracks({ tracks }: { tracks: TopTrack[] }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-surface/40 px-4 py-4 text-white/80">
@@ -358,8 +441,8 @@ function TopTracks({ tracks }: { tracks: TopTrack[] }) {
         {tracks.map((track) => (
           <div key={track.track_uri} className="flex items-center justify-between gap-4 py-3">
             <div>
-              <p className="font-semibold text-white">{track.track_name ?? "Untitled track"}</p>
-              <p className="text-xs text-white/60">{track.artist_names ?? "Unknown artist"}</p>
+              <p className="font-semibold text-white">{track.track_name ?? pickLabel(track, "Track Name", "Untitled track")}</p>
+              <p className="text-xs text-white/60">{track.artist_names ?? pickLabel(track, "Artist Name(s)", "Unknown artist")}</p>
             </div>
             <span className="text-xs text-white/60">
               {track.popularity != null ? `${Math.round(track.popularity)}%` : "—"}

@@ -9,6 +9,7 @@ import type { TrackSummary } from "@/types/tracks";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type SeedMode = "spotify" | "manual";
+type SeedRange = "short_term" | "medium_term" | "long_term";
 
 interface Recommendation extends TrackSummary {
   similarity: number;
@@ -27,6 +28,18 @@ interface StoredProfile {
   name: string;
   followers: number;
 }
+
+const rangeLabels: Record<SeedRange, string> = {
+  short_term: "Recent",
+  medium_term: "Seasonal",
+  long_term: "All time"
+};
+
+const rangeDescriptions: Record<SeedRange, string> = {
+  short_term: "Last few weeks",
+  medium_term: "Last six months",
+  long_term: "All-time favourites"
+};
 
 function normalizeRecommendation(raw: Record<string, unknown>): Recommendation {
   const record = raw as Recommendation;
@@ -53,13 +66,13 @@ export function SpotifyRecommender() {
   const [connected, setConnected] = React.useState(false);
   const [profile, setProfile] = React.useState<StoredProfile | null>(null);
   const [seedMode, setSeedMode] = React.useState<SeedMode>("manual");
+  const [seedRange, setSeedRange] = React.useState<SeedRange>("short_term");
   const [manualSeedInput, setManualSeedInput] = React.useState("Phoebe Bridgers\nRadiohead\nFour Tet");
   const [autoSeeds, setAutoSeeds] = React.useState<SpotifySeedTrack[]>([]);
   const [autoSeedsLoading, setAutoSeedsLoading] = React.useState(false);
   const [autoSeedsError, setAutoSeedsError] = React.useState<string | null>(null);
-  const [selectedSeedUris, setSelectedSeedUris] = React.useState<string[]>([]);
   const [seedLimit, setSeedLimit] = React.useState(3);
-  const [manualSelection, setManualSelection] = React.useState<TrackSummary[]>([]);
+  const [manualSeeds, setManualSeeds] = React.useState<TrackSummary[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [recommendations, setRecommendations] = React.useState<Recommendation[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -85,140 +98,36 @@ export function SpotifyRecommender() {
     }
   }, []);
 
-  const loadAutoSeeds = React.useCallback(async () => {
-    if (!connected || !profile?.id) return;
-    setAutoSeedsLoading(true);
-    setAutoSeedsError(null);
-    try {
-      const resp = await fetch(`${API_BASE}/auth/spotify/users/${profile.id}/top-tracks?limit=20`, {
-        cache: "no-store"
-      });
-      const payload = await resp.json();
-      if (!resp.ok) {
-        throw new Error((payload as { detail?: string })?.detail ?? "Unable to sync Spotify seeds");
+  const fetchAutoSeeds = React.useCallback(
+    async (range: SeedRange) => {
+      if (!connected || !profile?.id) return;
+      setAutoSeedsLoading(true);
+      setAutoSeedsError(null);
+      try {
+        const url = new URL(`${API_BASE}/auth/spotify/users/${profile.id}/top-tracks`);
+        url.searchParams.set("limit", "20");
+        url.searchParams.set("time_range", range);
+        const resp = await fetch(url.toString(), { cache: "no-store" });
+        const payload = await resp.json();
+        if (!resp.ok) {
+          throw new Error((payload as { detail?: string })?.detail ?? "Unable to sync Spotify seeds");
+        }
+        setAutoSeeds(payload as SpotifySeedTrack[]);
+      } catch (err) {
+        setAutoSeeds([]);
+        setAutoSeedsError(err instanceof Error ? err.message : "Unable to sync Spotify seeds");
+      } finally {
+        setAutoSeedsLoading(false);
       }
-      setAutoSeeds(payload as SpotifySeedTrack[]);
-    } catch (err) {
-      setAutoSeeds([]);
-      setAutoSeedsError(err instanceof Error ? err.message : "Unable to sync Spotify seeds");
-    } finally {
-      setAutoSeedsLoading(false);
-    }
-  }, [connected, profile?.id]);
+    },
+    [connected, profile?.id]
+  );
 
   React.useEffect(() => {
     if (seedMode === "spotify" && connected && profile?.id) {
-      void loadAutoSeeds();
+      void fetchAutoSeeds(seedRange);
     }
-  }, [seedMode, connected, profile?.id, loadAutoSeeds]);
-
-  React.useEffect(() => {
-    if (seedMode !== "spotify") {
-      return;
-    }
-    setSelectedSeedUris((prev) => {
-      const valid = prev.filter((uri) => autoSeeds.some((seed) => seed.track_uri === uri && seed.in_catalog));
-      if (valid.length) {
-        return valid.slice(0, 5);
-      }
-      const ready = autoSeeds.filter((seed) => seed.in_catalog);
-      if (!ready.length) {
-        return [];
-      }
-      return ready.slice(0, seedLimit).map((seed) => seed.track_uri);
-    });
-  }, [autoSeeds, seedMode, seedLimit]);
-
-  const seedLookup = React.useMemo(() => {
-    const map = new Map<string, SpotifySeedTrack>();
-    for (const seed of autoSeeds) {
-      map.set(seed.track_uri, seed);
-    }
-    return map;
-  }, [autoSeeds]);
-
-  const seedContext = React.useMemo(
-    () => (seedMode === "manual" ? manualSelection.map((seed) => seed.track_uri) : selectedSeedUris),
-    [seedMode, manualSelection, selectedSeedUris]
-  );
-
-  const blendStory = React.useMemo(() => {
-    const names =
-      seedMode === "manual"
-        ? manualSelection.map((seed) => seed.track_name ?? "Unknown")
-        : selectedSeedUris.map((uri) => seedLookup.get(uri)?.track_name ?? "Unknown");
-    const clean = names.filter(Boolean);
-    if (!clean.length) {
-      return "Select seeds to preview how the blend will behave.";
-    }
-    if (clean.length === 1) {
-      return `Orbiting ${clean[0]} and nearby textures for a focused story.`;
-    }
-    if (clean.length === 2) {
-      return `Bridging ${clean[0]} with ${clean[1]} for a balanced duet of influences.`;
-    }
-    return `Fusing ${clean.slice(0, 3).join(", ")} to keep the blend in that leftfield art-pop lane.`;
-  }, [seedMode, manualSelection, selectedSeedUris, seedLookup]);
-
-  const connect = async () => {
-    setError(null);
-    try {
-      const resp = await fetch(`${API_BASE}/auth/spotify/login`);
-      if (!resp.ok) throw new Error("Unable to start Spotify login");
-      const data = await resp.json();
-      window.location.href = data.auth_url;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to start Spotify login");
-    }
-  };
-
-  const toggleSeedSelection = (uri: string) => {
-    setSelectedSeedUris((prev) => {
-      const exists = prev.includes(uri);
-      if (exists) {
-        return prev.filter((item) => item !== uri);
-      }
-      const next = [...prev, uri];
-      if (next.length > 5) {
-        next.shift();
-      }
-      return next;
-    });
-  };
-
-  const sendFeedback = React.useCallback(
-    async (rec: Recommendation, verdict: "up" | "down") => {
-      setFeedbackState((prev) => ({ ...prev, [rec.track_uri]: verdict }));
-      try {
-        await fetch(`${API_BASE}/tracks/feedback`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            track_uri: rec.track_uri,
-            verdict,
-            spotify_user_id: profile?.id ?? null,
-            seed_context: seedContext
-          })
-        });
-      } catch {
-        // no-op
-      }
-    },
-    [profile?.id, seedContext]
-  );
-
-  const readySeeds = React.useMemo(() => autoSeeds.filter((seed) => seed.in_catalog), [autoSeeds]);
-  const catalogReadySeeds = readySeeds.length;
-
-  const disconnect = () => {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("spotifyAuth");
-    }
-    setConnected(false);
-    setProfile(null);
-    setSeedMode("manual");
-    setAutoSeeds([]);
-  };
+  }, [seedMode, connected, profile?.id, seedRange, fetchAutoSeeds]);
 
   const resolveManualSeeds = React.useCallback(async () => {
     const terms = manualSeedInput
@@ -240,7 +149,7 @@ export function SpotifyRecommender() {
     if (seeds.length === 0) {
       throw new Error("No matches for provided seeds");
     }
-    setManualSelection(seeds);
+    setManualSeeds(seeds);
     return seeds;
   }, [manualSeedInput]);
 
@@ -255,16 +164,15 @@ export function SpotifyRecommender() {
       let body: Record<string, unknown> = { seed_limit: seedLimit };
       if (seedMode === "manual") {
         const seeds = await resolveManualSeeds();
-        const uris = seeds.map((seed) => seed.track_uri).slice(0, seedLimit);
-        body = { ...body, uris };
+        body = { ...body, uris: seeds.map((seed) => seed.track_uri).slice(0, seedLimit) };
       } else {
-        const pinned = selectedSeedUris.slice(0, seedLimit);
-        if (pinned.length > 0) {
-          body = { ...body, uris: pinned };
-        } else {
-          body = { ...body, spotify_user_id: profile.id };
+        const available = autoSeeds.filter((seed) => seed.in_catalog);
+        if (available.length === 0) {
+          throw new Error("No Spotify seeds found in the offline dataset. Sync your library and try again.");
         }
+        body = { ...body, uris: available.slice(0, seedLimit).map((seed) => seed.track_uri) };
       }
+
       const resp = await fetch(`${API_BASE}/tracks/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -283,17 +191,75 @@ export function SpotifyRecommender() {
     }
   };
 
+  const seedContext = React.useMemo(() => {
+    if (seedMode === "manual") {
+      return manualSeeds.map((seed) => seed.track_uri);
+    }
+    return autoSeeds.slice(0, seedLimit).map((seed) => seed.track_uri);
+  }, [seedMode, manualSeeds, autoSeeds, seedLimit]);
+
+  const blendStory = React.useMemo(() => {
+    const names =
+      seedMode === "manual"
+        ? manualSeeds.map((seed) => seed.track_name ?? "Unknown")
+        : autoSeeds.slice(0, seedLimit).map((seed) => seed.track_name);
+    const clean = names.filter(Boolean);
+    if (!clean.length) {
+      return "Select seeds to preview how the blend will behave.";
+    }
+    if (clean.length === 1) {
+      return `Orbiting ${clean[0]} and nearby textures for a focused story.`;
+    }
+    if (clean.length === 2) {
+      return `Bridging ${clean[0]} with ${clean[1]} for a balanced duet of influences.`;
+    }
+    return `Fusing ${clean.slice(0, 3).join(", ")} to keep the blend in that leftfield art-pop lane.`;
+  }, [seedMode, manualSeeds, autoSeeds, seedLimit]);
+
+  const connect = async () => {
+    setError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/auth/spotify/login`);
+      if (!resp.ok) throw new Error("Unable to start Spotify login");
+      const data = await resp.json();
+      window.location.href = data.auth_url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start Spotify login");
+    }
+  };
+
+  const sendFeedback = React.useCallback(
+    async (rec: Recommendation, verdict: "up" | "down") => {
+      setFeedbackState((prev) => ({ ...prev, [rec.track_uri]: verdict }));
+      try {
+        await fetch(`${API_BASE}/tracks/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            track_uri: rec.track_uri,
+            verdict,
+            spotify_user_id: profile?.id ?? null,
+            seed_context: seedContext
+          })
+        });
+      } catch {
+        // silent failure
+      }
+    },
+    [profile?.id, seedContext]
+  );
+
+  const connectedSeedsReady = autoSeeds.filter((seed) => seed.in_catalog).length;
+
   return (
     <section className="panel space-y-6 p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h3 className="text-2xl font-semibold text-foreground">Spotify recommender</h3>
-          <p className="text-sm text-white/70">
-            Connect Spotify to blend saved music with live embeddings. We can auto-seed from your top tracks or let you override manually.
-          </p>
+          <p className="text-sm text-white/70">Blend Spotify favourites with the offline dataset. No pinned seeds needed.</p>
         </div>
         {connected ? (
-          <Button variant="secondary" onClick={disconnect}>
+          <Button variant="secondary" onClick={() => { localStorage.removeItem("spotifyAuth"); window.location.reload(); }}>
             Disconnect
           </Button>
         ) : (
@@ -354,57 +320,48 @@ export function SpotifyRecommender() {
           <div className="space-y-3 rounded-2xl border border-white/15 bg-surface/70 p-4 text-sm text-white/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Top & saved tracks</p>
+                <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Top tracks</p>
                 <p className="text-white/70">
-                  {catalogReadySeeds > 0
-                    ? `${catalogReadySeeds}/${autoSeeds.length || "?"} synced tracks already exist in the offline catalog.`
-                    : "Syncing your Spotify favourites (top tracks + liked songs) with the dataset."}
+                  {connectedSeedsReady > 0
+                    ? `${connectedSeedsReady}/${autoSeeds.length || "?"} seeds exist in the offline dataset.`
+                    : "Syncing your Spotify favourites with the dataset."}
                 </p>
               </div>
-              <Button variant="secondary" onClick={loadAutoSeeds} disabled={autoSeedsLoading}>
-                {autoSeedsLoading ? "Syncing…" : "Refresh"}
-              </Button>
+              <div className="flex gap-2 text-xs">
+                {(Object.keys(rangeLabels) as SeedRange[]).map((range) => (
+                  <button
+                    key={range}
+                    type="button"
+                    disabled={!connected}
+                    onClick={() => setSeedRange(range)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 uppercase tracking-[0.2rem]",
+                      seedRange === range ? "border-white text-white" : "border-white/20 text-white/60 hover:border-white"
+                    )}
+                  >
+                    {rangeLabels[range]}
+                  </button>
+                ))}
+              </div>
             </div>
+            <p className="text-xs text-white/60">{rangeDescriptions[seedRange]}</p>
             {autoSeedsError && <p className="text-sm text-red-300">{autoSeedsError}</p>}
             <div className="space-y-2">
               {autoSeedsLoading && <p className="text-white/60">Fetching your Spotify favourites…</p>}
               {!autoSeedsLoading && autoSeeds.length === 0 && (
                 <p className="text-white/60">Connect Spotify and refresh to see seeds.</p>
               )}
-              {autoSeeds.map((seed) => {
-                const active = selectedSeedUris.includes(seed.track_uri);
-                return (
-                  <div
-                    key={seed.track_uri}
-                    className={cn(
-                      "flex items-center justify-between rounded border px-4 py-2",
-                      active ? "border-white/60 bg-white/5" : "border-white/10"
-                    )}
-                  >
-                    <div>
-                      <p className="font-semibold text-white">{seed.track_name}</p>
-                      <p className="text-xs text-white/60">{seed.artist_names}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2 text-xs">
-                      <span className={cn(seed.in_catalog ? "text-accent-teal" : "text-white/40")}>
-                        {seed.in_catalog ? "In dataset" : "Sync pending"}
-                      </span>
-                      {seed.in_catalog && (
-                        <button
-                          type="button"
-                          onClick={() => toggleSeedSelection(seed.track_uri)}
-                          className={cn(
-                            "rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.2rem]",
-                            active ? "border-white text-white" : "border-white/30 text-white/70 hover:border-white"
-                          )}
-                        >
-                          {active ? "Pinned" : "Use"}
-                        </button>
-                      )}
-                    </div>
+              {autoSeeds.slice(0, 6).map((seed) => (
+                <div key={seed.track_uri} className="flex items-center justify-between rounded border border-white/10 px-4 py-2">
+                  <div>
+                    <p className="font-semibold text-white">{seed.track_name}</p>
+                    <p className="text-xs text-white/60">{seed.artist_names}</p>
                   </div>
-                );
-              })}
+                  <span className={cn("text-xs", seed.in_catalog ? "text-accent-teal" : "text-white/40")}>
+                    {seed.in_catalog ? "In dataset" : "Sync pending"}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         ) : (
@@ -424,7 +381,7 @@ export function SpotifyRecommender() {
         <div className="rounded-2xl border border-white/10 bg-surface/70 p-4">
           <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Blend story</p>
           <p className="mt-2 text-sm text-white/80">{blendStory}</p>
-          <p className="mt-1 text-xs text-white/50">Pinned seeds drive this narrative—adjust them before generating.</p>
+          <p className="mt-1 text-xs text-white/50">Seeds update as you change ranges or manual selections.</p>
         </div>
         <div className="flex items-center gap-3">
           <Button onClick={generateBlend} disabled={loading || (seedMode === "spotify" && !connected)}>
@@ -443,11 +400,12 @@ export function SpotifyRecommender() {
               <p className="text-xs text-white/60">{getArtistNames(rec)}</p>
               <p className="text-xs text-white/50">{Math.round(rec.similarity * 100)}% match</p>
               {rec.components && (
-                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-white/60">
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-white/70">
                   {Object.entries(rec.components).slice(0, 3).map(([key, value]) => (
-                    <span key={`${rec.track_uri}-${key}`} className="rounded-full bg-white/10 px-2 py-1">
-                      {key}: {(value * 100).toFixed(0)}%
-                    </span>
+                    <div key={key} className="rounded border border-white/10 px-2 py-1 text-center">
+                      <p className="uppercase tracking-wide text-[10px] text-white/40">{key}</p>
+                      <p className="text-white">{(value * 100).toFixed(0)}%</p>
+                    </div>
                   ))}
                 </div>
               )}

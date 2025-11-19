@@ -34,10 +34,14 @@ export function DiscoveryJourneys() {
   }, []);
 
   React.useEffect(() => {
+    if (!userId) {
+      setJourneys([]);
+      return;
+    }
     async function fetchJourneys() {
       try {
         const url = new URL(`${API_BASE}/tracks/journeys`);
-        if (userId) url.searchParams.set("spotify_user_id", userId);
+        url.searchParams.set("spotify_user_id", userId);
         const res = await fetch(url.toString(), { cache: "no-store" });
         if (!res.ok) throw new Error("Failed");
         const data = (await res.json()) as Journey[];
@@ -56,23 +60,25 @@ export function DiscoveryJourneys() {
         <span className="rounded-full border border-white/30 px-3 py-1 text-xs text-white/70">Quests</span>
       </div>
       <div className="space-y-4 text-sm text-white/80">
-        {journeys.map((journey) => (
-          <div key={journey.seed} className="rounded border border-white/15 p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-lg font-semibold text-white">{journey.seed}</p>
-              <span className="text-xs uppercase tracking-[0.3rem] text-white/50">Quest</span>
+        {!userId && <p className="text-sm text-white/60">Connect Spotify to get personal discovery journeys.</p>}
+        {userId &&
+          journeys.map((journey) => (
+            <div key={journey.seed} className="rounded border border-white/15 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-semibold text-white">{journey.seed}</p>
+                <span className="text-xs uppercase tracking-[0.3rem] text-white/50">Quest</span>
+              </div>
+              <p className="mt-1 text-xs text-white/60">{journey.summary}</p>
+              <ol className="mt-3 list-decimal space-y-1 pl-5">
+                {journey.steps.map((step) => (
+                  <li key={`${journey.seed}-${step.title}`}>
+                    <span className="font-semibold">{step.title}:</span> {step.description}
+                  </li>
+                ))}
+              </ol>
             </div>
-            <p className="mt-1 text-xs text-white/60">{journey.summary}</p>
-            <ol className="mt-3 list-decimal space-y-1 pl-5">
-              {journey.steps.map((step) => (
-                <li key={`${journey.seed}-${step.title}`}>
-                  <span className="font-semibold">{step.title}:</span> {step.description}
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))}
-        {journeys.length === 0 && <p className="text-sm text-white/60">Journeys load once Spotify insights are available.</p>}
+          ))}
+        {userId && journeys.length === 0 && <p className="text-sm text-white/60">Syncing your Spotify signals…</p>}
       </div>
     </section>
   );

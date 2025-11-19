@@ -16,7 +16,7 @@ from ...db import get_session, session_scope
 from ...models import PlaylistTrack, SpotifyToken, SpotifyUser, Track, UserPlaylist
 from ...schemas import SpotifySeedTrack, SpotifyUserPlaylist, StatsResponse, TrackSummary
 from ...services.spotify import SpotifyServiceError, fetch_spotify_seed_tracks, sync_user_library
-from ...services.user_stats import compute_user_library_stats
+from ...services.user_stats import compute_user_library_stats, compute_playlist_stats
 from ...utils import to_summary_schema
 
 STATE_TTL_SECONDS = 600
@@ -155,10 +155,11 @@ async def _persist_tokens(profile: dict, token_data: dict) -> None:
 async def spotify_user_top_tracks(
     user_id: str,
     limit: int = Query(15, ge=1, le=50),
+    time_range: str | None = Query(default=None, pattern="^(short_term|medium_term|long_term)$"),
     session: AsyncSession = Depends(get_session),
 ) -> list[SpotifySeedTrack]:
     try:
-        return await fetch_spotify_seed_tracks(session, user_id, limit=limit, annotate_catalog=True)
+        return await fetch_spotify_seed_tracks(session, user_id, limit=limit, annotate_catalog=True, time_range=time_range)
     except SpotifyServiceError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -208,3 +209,16 @@ async def spotify_user_playlist_tracks(
         )
     ).scalars().all()
     return [to_summary_schema(row) for row in rows]
+
+
+@router.get("/spotify/users/{user_id}/playlists/{playlist_id}/stats", response_model=StatsResponse)
+async def spotify_user_playlist_stats(
+    user_id: str,
+    playlist_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> StatsResponse:
+    await sync_user_library(session, user_id)
+    stats = await compute_playlist_stats(session, user_id, playlist_id)
+    if stats.totals.total_rows == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist not found or empty")
+    return stats

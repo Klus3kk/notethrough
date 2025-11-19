@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import { SpotifyRecommender } from "@/components/spotify-recommender";
 import { TrackExplorerPanel } from "@/components/track-explorer-panel";
 import { SpotifyChecker } from "@/components/spotify-checker";
-import { StoryModePreview } from "@/components/story-mode";
 import { DiscoveryJourneys } from "@/components/discovery-journeys";
 
 interface Section {
@@ -56,13 +55,6 @@ const sections: Section[] = [
     description: "Search the catalogue, filter by mood, and inspect metadata without logging in.",
     tags: ["Search", "Metadata"],
     render: () => <TrackExplorerPanel />
-  },
-  {
-    id: "story-mode",
-    title: "Story mode analytics",
-    description: "Generate narrative cards from Spotify stats showing how your taste ranks globally.",
-    tags: ["Stories", "Shareables"],
-    render: () => <StoryModePreview />
   },
   {
     id: "journeys",
