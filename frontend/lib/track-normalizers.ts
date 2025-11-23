@@ -4,6 +4,21 @@ function pick<T>(value: T | null | undefined, fallback: T): T {
   return value === undefined || value === null || value === "" ? fallback : value;
 }
 
+function normalizeGenres(input: unknown): string[] {
+  if (Array.isArray(input)) {
+    return input
+      .map((genre) => `${genre}`.trim())
+      .filter((genre) => genre.length > 0);
+  }
+  if (typeof input === "string") {
+    return input
+      .split(",")
+      .map((genre) => genre.trim())
+      .filter((genre) => genre.length > 0);
+  }
+  return [];
+}
+
 export function normalizeTrackSummary(raw: Record<string, any>): TrackSummary {
   return {
     track_uri: pick(raw.track_uri ?? raw["Track URI"], ""),
@@ -11,7 +26,7 @@ export function normalizeTrackSummary(raw: Record<string, any>): TrackSummary {
     artist_names: raw.artist_names ?? raw["Artist Name(s)"] ?? "Unknown artist",
     album_name: raw.album_name ?? raw["Album Name"] ?? null,
     release_year: raw.release_year ?? raw["Release Year"] ?? null,
-    genres: raw.genres ?? raw["Genres"] ?? [],
+    genres: normalizeGenres(raw.genres ?? raw["Genres"]),
     popularity: raw.popularity ?? raw["Popularity"] ?? null,
     duration_ms: raw.duration_ms ?? raw["Duration (ms)"] ?? null,
     explicit: raw.explicit ?? raw["Explicit"] ?? null,

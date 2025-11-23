@@ -24,7 +24,7 @@ const sections: Section[] = [
     id: "home",
     title: "Notethrough",
     description: "All your discovery experiences in one surface. Start anonymous, connect Spotify when you're ready, and explore recommender, analytics and quest-driven flows.",
-    tags: ["Recommender", "Analytics", "Journeys"],
+    tags: [],
     render: () => ( <></>
     )
   },
@@ -32,7 +32,7 @@ const sections: Section[] = [
     id: "offline-recommender",
     title: "Universal recommender",
     description: "Describe favourite tracks or albums and get fresh suggestions—no Spotify login required.",
-    tags: ["Hybrid engine", "No auth"],
+    tags: ["No auth"],
     render: () => <BlendConsole />
   },
   {
@@ -53,14 +53,14 @@ const sections: Section[] = [
     id: "track-explorer",
     title: "Universal track explorer",
     description: "Search the catalogue, filter by mood, and inspect metadata without logging in.",
-    tags: ["Search", "Metadata"],
+    tags: ["Search"],
     render: () => <TrackExplorerPanel />
   },
   {
     id: "journeys",
     title: "Discovery journeys",
     description: "Follow quests that hop through artists, labels, and playlists. Works for anonymous & Spotify users.",
-    tags: ["Quests", "Graph"],
+    tags: ["Quests"],
     render: () => <DiscoveryJourneys />
   }
 ];

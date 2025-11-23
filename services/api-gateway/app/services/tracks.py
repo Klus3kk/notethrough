@@ -43,7 +43,13 @@ async def search_tracks(session: AsyncSession, query: str, limit: int = 25) -> L
                 + literal(" ")
                 + func.coalesce(Track.album_name, "")
             )
-        filters.append(and_(*[column_expr.like(f"%{token}%") for token in text_tokens]))
+        token_conditions = [column_expr.like(f"%{token}%") for token in text_tokens]
+        joined_query = " ".join(text_tokens)
+        phrase_condition = column_expr.like(f"%{joined_query}%")
+        if len(token_conditions) == 1:
+            filters.append(token_conditions[0])
+        else:
+            filters.append(or_(and_(*token_conditions), phrase_condition))
 
     if genre_tokens:
         genre_filters = [Track.genres.ilike(f"%{token.split('genre:', 1)[1]}%") for token in genre_tokens]
@@ -52,20 +58,9 @@ async def search_tracks(session: AsyncSession, query: str, limit: int = 25) -> L
     if not filters:
         return []
 
-    if hasattr(Track, "search_text"):
-        column_expr = func.lower(func.coalesce(Track.search_text, ""))
-    else:
-        column_expr = func.lower(
-            func.coalesce(Track.track_name, "")
-            + literal(" ")
-            + func.coalesce(Track.artist_names, "")
-            + literal(" ")
-            + func.coalesce(Track.album_name, "")
-        )
-    conditions = [column_expr.like(f"%{token}%") for token in tokens]
-
     stmt = select(Track).where(and_(*filters)).order_by(Track.popularity.desc().nullslast()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
+    await _hydrate_missing_genres(session, rows)
     return [to_summary_schema(track) for track in rows]
 
 
@@ -89,7 +84,13 @@ async def suggest_tracks(session: AsyncSession, query: str, limit: int = 8) -> L
                 + literal(" ")
                 + func.coalesce(Track.album_name, "")
             )
-        filters.append(and_(*[column_expr.like(f"%{token}%") for token in text_tokens]))
+        token_conditions = [column_expr.like(f"%{token}%") for token in text_tokens]
+        joined_query = " ".join(text_tokens)
+        phrase_condition = column_expr.like(f"%{joined_query}%")
+        if len(token_conditions) == 1:
+            filters.append(token_conditions[0])
+        else:
+            filters.append(or_(and_(*token_conditions), phrase_condition))
 
     if genre_tokens:
         genre_filters = [Track.genres.ilike(f"%{token.split('genre:', 1)[1]}%") for token in genre_tokens]
@@ -100,6 +101,7 @@ async def suggest_tracks(session: AsyncSession, query: str, limit: int = 8) -> L
 
     stmt = select(Track).where(and_(*filters)).order_by(Track.popularity.desc().nullslast()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
+    await _hydrate_missing_genres(session, rows)
     return [to_suggestion_schema(track) for track in rows]
 
 
@@ -426,53 +428,137 @@ async def build_story_insights(session: AsyncSession, user_id: str | None = None
     return insights
 
 
+def _primary_artist_name(track: Track | None) -> str | None:
+    if not track or not track.artist_names:
+        return None
+    candidate = track.artist_names.split(",")[0].strip()
+    return candidate or None
+
+
+def _step_from_track(title: str, description: str, track: Track | None) -> JourneyStep:
+    return JourneyStep(
+        title=title,
+        description=description,
+        artist=_primary_artist_name(track),
+        track=track.track_name if track else None,
+        album=track.album_name if track else None,
+    )
+
+
+async def _top_tracks_for_artist(session: AsyncSession, artist_name: str, limit: int = 3) -> List[Track]:
+    if not artist_name:
+        return []
+    pattern = f"%{artist_name.lower()}%"
+    stmt = (
+        select(Track)
+        .where(func.lower(func.coalesce(Track.artist_names, "")).like(pattern))
+        .order_by(Track.popularity.desc().nullslast())
+        .limit(limit)
+    )
+    return (await session.execute(stmt)).scalars().all()
+
+
+async def _genre_neighbors(
+    session: AsyncSession,
+    genres: List[str],
+    exclude_artists: List[str],
+    limit: int,
+    invert: bool = False,
+) -> List[Track]:
+    normalized = [genre.lower() for genre in genres if genre]
+    if not normalized and not invert:
+        return []
+
+    stmt = select(Track).where(Track.artist_names.isnot(None))
+    genre_column = func.lower(func.coalesce(Track.genres, ""))
+    if normalized:
+        genre_condition = or_(*[genre_column.like(f"%{genre}%") for genre in normalized])
+        stmt = stmt.where(~genre_condition) if invert else stmt.where(genre_condition)
+    elif invert:
+        return []
+
+    for artist in exclude_artists:
+        if not artist:
+            continue
+        stmt = stmt.where(~func.lower(func.coalesce(Track.artist_names, "")).like(f"%{artist.lower()}%"))
+
+    stmt = stmt.order_by(Track.popularity.desc().nullslast()).limit(limit)
+    return (await session.execute(stmt)).scalars().all()
+
+
 async def build_discovery_journeys(session: AsyncSession, limit: int = 3, user_id: str | None = None) -> List[DiscoveryJourney]:
     journeys: List[DiscoveryJourney] = []
-    if user_id:
-        stats = await compute_user_library_stats(session, user_id)
-        artists = [item["name"] for item in stats.top_artists if item.get("name")]
-        genres = [item["name"] for item in stats.top_genres if item.get("name")]
-        if not artists:
-            return journeys
-        genre_cycle = genres if genres else ["adjacent scenes"]
-        for idx, artist in enumerate(artists[:limit]):
-            anchor_genre = genre_cycle[idx % len(genre_cycle)]
-            steps = [
-                JourneyStep(title="Warm-up", description=f"Spin {artist}'s essentials to lock the palette."),
-                JourneyStep(title="Neighbor hop", description=f"Blend other {anchor_genre} leaders for cohesion."),
-                JourneyStep(title="Influence dive", description=f"Trace who influenced {artist} and sample their catalogues."),
-                JourneyStep(title="Mood stretch", description=f"Introduce an adjacent genre for controlled chaos."),
-                JourneyStep(title="Playlist ready", description=f"Mix the best finds into a shareable quest."),
-            ]
-            journeys.append(DiscoveryJourney(seed=artist, summary=f"{artist} → {anchor_genre} → influence map", steps=steps))
+    stats = await compute_user_library_stats(session, user_id) if user_id else await compute_statistics(session)
+    anchors = [item["name"] for item in stats.top_artists if item.get("name")]
+    if not anchors:
         return journeys
 
-    rows = (
-        await session.execute(
-            select(
-                Track.artist_names.label("artist"),
-                func.count().label("count"),
-                func.max(Track.record_label).label("label"),
-                func.max(Track.genres).label("genres"),
-            )
-            .where(Track.artist_names.isnot(None))
-            .group_by(Track.artist_names)
-            .order_by(func.count().desc())
-            .limit(limit)
-        )
-    ).all()
+    top_genre_backfill = [genre["name"] for genre in stats.top_genres if genre.get("name")]
 
-    for row in rows:
-        artist = (row.artist or "Unknown").split(",")[0].strip()
-        label = row.label or "Independent"
-        genres = [g.strip() for g in (row.genres.split(",") if row.genres else []) if g.strip()]
-        genre = genres[0] if genres else "adjacent scenes"
-        steps = [
-            JourneyStep(title="Seed", description=f"Start with {artist}'s best-known cuts."),
-            JourneyStep(title="Label hop", description=f"Drill into other {label} releases for shared DNA."),
-            JourneyStep(title="Genre quest", description=f"Blend nearby {genre} acts to surprise listeners."),
+    for artist in anchors:
+        hero_tracks = await _top_tracks_for_artist(session, artist)
+        if not hero_tracks:
+            continue
+        hero = hero_tracks[0]
+        hero_genres = hero.genres_list() or top_genre_backfill[:2]
+
+        neighbors = await _genre_neighbors(session, hero_genres, exclude_artists=[artist], limit=2)
+        wildcard = await _genre_neighbors(
+            session,
+            hero_genres,
+            exclude_artists=[artist] + [neighbor.artist_names or "" for neighbor in neighbors],
+            limit=1,
+            invert=True,
+        )
+
+        scene_label = hero_genres[0] if hero_genres else "the scene"
+        steps: List[JourneyStep] = [
+            _step_from_track("Drop the anthem", f"Open with {artist}'s defining cut to anchor the vibe.", hero),
         ]
-        journeys.append(DiscoveryJourney(seed=artist, summary=f"From {artist} → {label} → {genre}", steps=steps))
+
+        if len(hero_tracks) > 1:
+            steps.append(
+                _step_from_track(
+                    "Deep cut layer",
+                    f"Blend '{hero_tracks[1].track_name}' to reward longtime fans.",
+                    hero_tracks[1],
+                )
+            )
+
+        if neighbors:
+            steps.append(
+                _step_from_track(
+                    "Scene ally",
+                    f"Bring in a peer from the {scene_label} lane for cohesion.",
+                    neighbors[0],
+                )
+            )
+
+        if len(neighbors) > 1:
+            steps.append(
+                _step_from_track(
+                    "Label trail",
+                    "Trace the lineage with another collaborator or label-mate.",
+                    neighbors[1],
+                )
+            )
+
+        if wildcard:
+            steps.append(
+                _step_from_track(
+                    "Wildcard pivot",
+                    "Flip expectations with a contrasting texture.",
+                    wildcard[0],
+                )
+            )
+
+        summary = (
+            f"Start with {artist}, ride the {scene_label} energy, then branch into allies and a curveball."
+        )
+        journeys.append(DiscoveryJourney(seed=artist, summary=summary, steps=steps[:5]))
+        if len(journeys) >= limit:
+            break
+
     return journeys
 
 
@@ -508,3 +594,37 @@ def _fallback_rank(seeds: List[Track], candidates: List[Track]) -> List[Tuple[Tr
         similarity = float(1.0 / (1.0 + dist))
         scored.append((candidate, similarity, None))
     return scored
+
+
+async def _hydrate_missing_genres(session: AsyncSession, tracks: List[Track]) -> None:
+    cache: Dict[str, list[str]] = {}
+    for track in tracks:
+        if track.genres:
+            continue
+        artist = _primary_artist_name(track)
+        if not artist:
+            continue
+        key = artist.lower()
+        if key not in cache:
+            genre_rows = (
+                await session.execute(
+                    select(Track.genres)
+                    .where(Track.genres.isnot(None))
+                    .where(func.lower(func.coalesce(Track.artist_names, "")).like(f"%{key}%"))
+                    .limit(40)
+                )
+            ).scalars().all()
+            inferred: list[str] = []
+            for raw in genre_rows:
+                if not raw:
+                    continue
+                for token in raw.split(","):
+                    token = token.strip()
+                    if token and token not in inferred:
+                        inferred.append(token)
+                if len(inferred) >= 6:
+                    break
+            cache[key] = inferred
+        fallback = cache.get(key, [])
+        if fallback:
+            track.genres = ",".join(fallback[:6])

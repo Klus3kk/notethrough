@@ -81,6 +81,9 @@ class StoryInsight(BaseModel):
 class JourneyStep(BaseModel):
     title: str
     description: str
+    artist: Optional[str] = None
+    track: Optional[str] = None
+    album: Optional[str] = None
 
 
 class DiscoveryJourney(BaseModel):
