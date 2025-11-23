@@ -6,7 +6,7 @@ import type { TrackSummary } from "@/types/tracks";
 const templates = [
   "Seeds lean %GENRE% with %PCT%%% energy. Expect punchy drums over smoky textures.",
   "We are bridging %YEARSPAN% influences so the blend feels classic yet fresh.",
-  "%ENERGY%%% energy vs %DANCE%%% danceability – built for focused movement.",
+  "%ENERGY%%% energy vs %DANCE%%% danceability - built for focused movement.",
   "Story card: owning the %GENRE% underground while remaining playlist-friendly."
 ];
 
@@ -22,7 +22,7 @@ export function EffectPreview({ seeds }: { seeds: TrackSummary[] }) {
     const energy = Math.round((seeds.reduce((sum, item) => sum + (item.energy ?? 0.62), 0) / seeds.length) * 100);
     const dance = Math.round((seeds.reduce((sum, item) => sum + (item.danceability ?? 0.55), 0) / seeds.length) * 100);
     const years = seeds.map((seed) => seed.release_year).filter(Boolean) as number[];
-    const span = years.length ? `${Math.min(...years)}–${Math.max(...years)}` : "multi-era";
+    const span = years.length ? `${Math.min(...years)}-${Math.max(...years)}` : "multi-era";
     const template = templates[Math.floor(Math.random() * templates.length)];
     setCopy({
       title: `${genre} effect`,

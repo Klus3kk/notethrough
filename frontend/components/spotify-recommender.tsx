@@ -62,6 +62,11 @@ function normalizeRecommendation(raw: Record<string, unknown>): Recommendation {
 const getTrackName = (rec: Recommendation) => rec.track_name ?? "Unknown";
 const getArtistNames = (rec: Recommendation) => rec.artist_names ?? "Unknown";
 
+interface BlendRequestBody {
+  uris: string[];
+  seed_limit: number;
+}
+
 export function SpotifyRecommender() {
   const [connected, setConnected] = React.useState(false);
   const [profile, setProfile] = React.useState<StoredProfile | null>(null);
@@ -77,6 +82,8 @@ export function SpotifyRecommender() {
   const [recommendations, setRecommendations] = React.useState<Recommendation[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [feedbackState, setFeedbackState] = React.useState<Record<string, "up" | "down">>({});
+  const [lastBlendPayload, setLastBlendPayload] = React.useState<BlendRequestBody | null>(null);
+  const skippedRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -161,7 +168,7 @@ export function SpotifyRecommender() {
     setLoading(true);
     setError(null);
     try {
-      let body: Record<string, unknown> = { seed_limit: seedLimit };
+      let body: BlendRequestBody = { seed_limit: seedLimit, uris: [] };
       if (seedMode === "manual") {
         const seeds = await resolveManualSeeds();
         body = { ...body, uris: seeds.map((seed) => seed.track_uri).slice(0, seedLimit) };
@@ -184,6 +191,8 @@ export function SpotifyRecommender() {
       }
       const normalized = payload.map((item) => normalizeRecommendation(item as Record<string, unknown>));
       setRecommendations(normalized.slice(0, 10));
+      setLastBlendPayload(body);
+      skippedRef.current = new Set();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Blend failed");
     } finally {
@@ -197,6 +206,39 @@ export function SpotifyRecommender() {
     }
     return autoSeeds.slice(0, seedLimit).map((seed) => seed.track_uri);
   }, [seedMode, manualSeeds, autoSeeds, seedLimit]);
+
+  const queueReplacement = React.useCallback(
+    async (skippedUri: string) => {
+      if (!lastBlendPayload) return;
+      try {
+        const resp = await fetch(`${API_BASE}/tracks/recommend`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lastBlendPayload)
+        });
+        const payload = await resp.json();
+        if (!resp.ok || !Array.isArray(payload)) {
+          return;
+        }
+        const normalized = payload.map((item) => normalizeRecommendation(item as Record<string, unknown>));
+        setRecommendations((current) => {
+          const used = new Set(current.map((item) => item.track_uri));
+          const dismissed = skippedRef.current;
+          dismissed.add(skippedUri);
+          const replacement = normalized.find(
+            (item) => !used.has(item.track_uri) && !dismissed.has(item.track_uri)
+          );
+          if (!replacement) {
+            return current;
+          }
+          return [...current, replacement];
+        });
+      } catch {
+        // ignore replacement errors
+      }
+    },
+    [lastBlendPayload]
+  );
 
   const connect = async () => {
     setError(null);
@@ -229,6 +271,16 @@ export function SpotifyRecommender() {
       }
     },
     [profile?.id, seedContext]
+  );
+
+  const handleSkip = React.useCallback(
+    (rec: Recommendation) => {
+      sendFeedback(rec, "down");
+      skippedRef.current.add(rec.track_uri);
+      setRecommendations((prev) => prev.filter((item) => item.track_uri !== rec.track_uri));
+      void queueReplacement(rec.track_uri);
+    },
+    [queueReplacement, sendFeedback]
   );
 
   const connectedSeedsReady = autoSeeds.filter((seed) => seed.in_catalog).length;
@@ -399,7 +451,7 @@ export function SpotifyRecommender() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => sendFeedback(rec, "down")}
+                  onClick={() => handleSkip(rec)}
                   className={cn(
                     "rounded-full border px-3 py-1 uppercase tracking-[0.2rem]",
                     feedbackState[rec.track_uri] === "down" ? "border-red-300 text-red-300" : "border-white/30 hover:border-white"

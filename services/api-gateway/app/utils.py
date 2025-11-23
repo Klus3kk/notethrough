@@ -9,7 +9,8 @@ from .schemas import Suggestion, TrackDetail, TrackSummary
 def _genres_to_list(genres: str | None) -> list[str]:
     if not genres:
         return []
-    return [genre.strip() for genre in genres.split(",") if genre.strip()]
+    cleaned = genres.replace("'", "").replace('"', "")
+    return [genre.strip() for genre in cleaned.split(",") if genre.strip()]
 
 
 def to_summary_schema(track: Track) -> TrackSummary:

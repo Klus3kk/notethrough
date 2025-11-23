@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { PlaylistAnalytics } from "@/components/playlist-analytics";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DatasetStats } from "@/hooks/useDatasetStats";
@@ -150,6 +151,12 @@ export function SpotifyChecker() {
     }
   }, [profile?.id, fetchStats, fetchPlaylists]);
 
+  React.useEffect(() => {
+    if (activePlaylistId) {
+      void ensurePlaylistData(activePlaylistId);
+    }
+  }, [activePlaylistId, ensurePlaylistData]);
+
   const connect = async () => {
     setError(null);
     try {
@@ -164,6 +171,12 @@ export function SpotifyChecker() {
 
   const connected = Boolean(profile);
   const activePlaylistTracks = activePlaylistId ? playlistTracks[activePlaylistId] ?? [] : [];
+  const activePlaylistStats = activePlaylistId ? playlistStats[activePlaylistId] ?? null : null;
+  const activePlaylistName = activePlaylistId
+    ? playlists.find((pl) => pl.id === activePlaylistId)?.name ?? "Playlist"
+    : null;
+  const playlistAnalyticsReady =
+    Boolean(activePlaylistId && activePlaylistStats && activePlaylistTracks.length > 0);
   const totals = stats?.totals;
   const releaseRange = totals?.release_year_range;
   const releaseSpan =
@@ -238,92 +251,79 @@ export function SpotifyChecker() {
         </>
       )}
       {connected && view === "playlists" && (
-        <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
-            <div className="flex items-center justify-between text-sm">
-              <p className="font-semibold text-white">Playlists</p>
-              <Button variant="ghost" className="text-xs text-white/70" onClick={fetchPlaylists} disabled={playlistsLoading}>
-                {playlistsLoading ? "Syncing…" : "Refresh"}
-              </Button>
+        <div className="space-y-6">
+          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
+              <div className="flex items-center justify-between text-sm">
+                <p className="font-semibold text-white">Playlists</p>
+                <Button
+                  variant="ghost"
+                  className="text-xs text-white/70"
+                  onClick={fetchPlaylists}
+                  disabled={playlistsLoading}
+                >
+                  {playlistsLoading ? "Syncing…" : "Refresh"}
+                </Button>
+              </div>
+              {playlistError && <p className="mt-2 text-xs text-red-300">{playlistError}</p>}
+              <div className="mt-3 space-y-2">
+                {playlists.map((playlist) => {
+                  const active = playlist.id === activePlaylistId;
+                  return (
+                    <button
+                      key={playlist.id}
+                      onClick={() => setActivePlaylistId(playlist.id)}
+                      className={cn(
+                        "w-full border px-3 py-2 text-left text-sm transition",
+                        active ? "border-white text-white" : "border-white/20 text-white/70 hover:border-white"
+                      )}
+                    >
+                      <p className="font-semibold">{playlist.name}</p>
+                      <p className="text-xs text-white/50">{playlist.tracks ?? 0} tracks</p>
+                    </button>
+                  );
+                })}
+                {!playlists.length && !playlistsLoading && (
+                  <p className="text-sm text-white/60">No playlists synced yet.</p>
+                )}
+              </div>
             </div>
-            {playlistError && <p className="mt-2 text-xs text-red-300">{playlistError}</p>}
-            <div className="mt-3 space-y-2">
-              {playlists.map((playlist) => {
-                const active = playlist.id === activePlaylistId;
-                return (
-                  <button
-                    key={playlist.id}
-                    onClick={() => {
-                      setActivePlaylistId(playlist.id);
-                      void ensurePlaylistData(playlist.id);
-                    }}
-                    className={cn(
-                      "w-full border px-3 py-2 text-left text-sm transition",
-                      active ? "border-white text-white" : "border-white/20 text-white/70 hover:border-white"
-                    )}
-                  >
-                    <p className="font-semibold">{playlist.name}</p>
-                    <p className="text-xs text-white/50">{playlist.tracks ?? 0} tracks</p>
-                  </button>
-                );
-              })}
-              {!playlists.length && !playlistsLoading && (
-                <p className="text-sm text-white/60">No playlists synced yet.</p>
+            <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
+              <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Playlist tracks</p>
+              {activePlaylistId && <p className="text-sm text-white/60">{activePlaylistName ?? "Playlist"}</p>}
+              {playlistTracksLoading && <p className="text-sm text-white/60">Loading tracks…</p>}
+              {!activePlaylistId && !playlistTracksLoading && (
+                <p className="text-sm text-white/60">Select a playlist to inspect tracks.</p>
               )}
+              {activePlaylistId && !playlistTracksLoading && activePlaylistTracks.length === 0 && (
+                <p className="text-sm text-white/60">Playlist tracks will appear after syncing.</p>
+              )}
+              <div className="mt-3 space-y-2 text-sm">
+                {activePlaylistTracks.map((track) => (
+                  <div key={track.track_uri} className="rounded border border-white/10 px-3 py-2">
+                    <p className="font-semibold text-white">{track.track_name}</p>
+                    <p className="text-xs text-white/60">{track.artist_names ?? "Unknown artist"}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
-            <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Playlist tracks</p>
-            {activePlaylistId && (
-              <p className="text-sm text-white/60">
-                {playlists.find((pl) => pl.id === activePlaylistId)?.name ?? "Playlist"}
-              </p>
+          <div>
+            {playlistAnalyticsReady && activePlaylistId && activePlaylistStats ? (
+              <PlaylistAnalytics
+                playlistName={activePlaylistName ?? "Playlist"}
+                stats={activePlaylistStats}
+                tracks={activePlaylistTracks}
+              />
+            ) : (
+              <div className="rounded-2xl border border-white/15 bg-surface/40 p-6 text-white/70">
+                {playlistStatsLoading || playlistTracksLoading ? (
+                  <p className="text-sm text-white/60">Loading playlist analytics…</p>
+                ) : (
+                  <p className="text-sm text-white/60">Select a playlist and sync it to view analytics.</p>
+                )}
+              </div>
             )}
-            {playlistTracksLoading && <p className="text-sm text-white/60">Loading tracks…</p>}
-            {!activePlaylistId && !playlistTracksLoading && (
-              <p className="text-sm text-white/60">Select a playlist to inspect tracks.</p>
-            )}
-            {activePlaylistId && !playlistTracksLoading && activePlaylistTracks.length === 0 && (
-              <p className="text-sm text-white/60">Playlist tracks will appear after syncing.</p>
-            )}
-            <div className="mt-3 space-y-2 text-sm">
-              {activePlaylistTracks.map((track) => (
-                <div key={track.track_uri} className="rounded border border-white/10 px-3 py-2">
-                  <p className="font-semibold text-white">{track.track_name}</p>
-                  <p className="text-xs text-white/60">{track.artist_names ?? "Unknown artist"}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-white/15 bg-surface/40 p-4 text-white/80">
-            <p className="text-xs uppercase tracking-[0.3rem] text-white/50">Playlist stats</p>
-            {playlistStatsLoading && <p className="text-sm text-white/60">Loading playlist stats…</p>}
-            {!playlistStatsLoading && activePlaylistId && playlistStats[activePlaylistId] && (
-              <>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <StatCard label="Tracks" value={formatNumber(playlistStats[activePlaylistId].totals.total_rows)} />
-                  <StatCard label="Unique artists" value={formatNumber(playlistStats[activePlaylistId].totals.unique_artists)} />
-                  <StatCard
-                    label="Avg popularity"
-                    value={formatPopularity(playlistStats[activePlaylistId].totals.average_popularity)}
-                  />
-                  <StatCard
-                    label="Energy vs dance"
-                    value={`${formatPercent(playlistStats[activePlaylistId].totals.average_energy)} / ${formatPercent(
-                      playlistStats[activePlaylistId].totals.average_danceability
-                    )}`}
-                  />
-                </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <RankedList title="Top artists" items={playlistStats[activePlaylistId].top_artists.slice(0, 4)} />
-                  <RankedList title="Top genres" items={playlistStats[activePlaylistId].top_genres.slice(0, 4)} />
-                </div>
-              </>
-            )}
-            {activePlaylistId && !playlistStats[activePlaylistId] && !playlistStatsLoading && (
-              <p className="text-sm text-white/60">Select a playlist or refresh to load stats.</p>
-            )}
-            {!activePlaylistId && <p className="text-sm text-white/60">Select a playlist to see analytics.</p>}
           </div>
         </div>
       )}
